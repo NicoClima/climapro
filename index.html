@@ -2283,6 +2283,7 @@ var CACHE_KEY_EQUIPOS    = 'climapro_equipos';
 var CACHE_KEY_CHECKLISTS = 'climapro_checklists';
 var CACHE_KEY_SYNC       = 'climapro_last_sync';
 var CACHE_KEY_PENDIENTES = 'climapro_pendientes';
+var CACHE_KEY_TECNICOS   = 'climapro_tecnicos';
 var CACHE_TTL            = 24 * 60 * 60 * 1000; // 24 horas
 var estaOffline          = false;
 
@@ -2386,6 +2387,39 @@ function leerDeCache(key){
   }
 }
 
+// ── Selector de técnico dinámico (tabla `tecnicos`, gestionable desde admin.html) ──
+function poblarSelectTecnicos(lista){
+  var sel = document.getElementById('sel-tecnico');
+  if(!sel || !lista || !lista.length) return;
+  var valorActual = sel.value;
+  var opciones = '<option value="">Selecciona tu nombre...</option>';
+  lista.forEach(function(t){
+    var n = (t.nombre||'').replace(/"/g,'&quot;');
+    opciones += '<option value="'+n+'">'+n+'</option>';
+  });
+  opciones += '<option value="Otro">Otro...</option>';
+  sel.innerHTML = opciones;
+  if(valorActual) sel.value = valorActual;
+}
+
+async function cargarTecnicosWizard(){
+  if(navigator.onLine){
+    try{
+      var tecs = await sbGet('tecnicos','activo=eq.true&order=orden.asc.nullslast,nombre.asc');
+      if(tecs && tecs.length){
+        guardarEnCache(CACHE_KEY_TECNICOS, tecs);
+        poblarSelectTecnicos(tecs);
+        return;
+      }
+    }catch(e){
+      console.warn('No se pudo cargar técnicos desde Supabase, se intenta caché/lista local:', e);
+    }
+  }
+  var cached = leerDeCache(CACHE_KEY_TECNICOS);
+  if(cached && cached.length) poblarSelectTecnicos(cached);
+  // Si no hay red ni caché, se mantiene la lista fija incluida en el HTML como último respaldo
+}
+
 // ── Sincronizar datos desde Supabase ─────────────────────
 async function sincronizarDatos(){
   if(!navigator.onLine) return false;
@@ -2401,6 +2435,11 @@ async function sincronizarDatos(){
     // Checklists (todos)
     var chks = await sbGet('checklists','select=*');
     guardarEnCache(CACHE_KEY_CHECKLISTS, chks);
+
+    // Técnicos habilitados
+    var tecs = await sbGet('tecnicos','activo=eq.true&order=orden.asc.nullslast,nombre.asc');
+    guardarEnCache(CACHE_KEY_TECNICOS, tecs);
+    poblarSelectTecnicos(tecs);
 
     // Marcar tiempo de sincronización
     localStorage.setItem(CACHE_KEY_SYNC, Date.now().toString());
@@ -3042,6 +3081,9 @@ setInterval(function(){
 
 cargarClientes().catch(function(e){
   console.error('Error en carga inicial:',e);
+});
+cargarTecnicosWizard().catch(function(e){
+  console.error('Error cargando técnicos:',e);
 });
 if(document.getElementById('firma-canvas'))setTimeout(initFirma,200);
 // Setear fecha de hoy por defecto

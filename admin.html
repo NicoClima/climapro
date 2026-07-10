@@ -368,6 +368,7 @@ if(sessionStorage.getItem('climapro_admin')==='1'){
       <button class="admin-tab" onclick="adminTab('clientes')">👥 Clientes</button>
       <button class="admin-tab" onclick="adminTab('historial')">📋 Historial</button>
       <button class="admin-tab" onclick="adminTab('nuevo-cliente')">➕ Nuevo</button>
+      <button class="admin-tab" onclick="adminTab('tecnicos')">🔧 Técnicos</button>
     </div>
 
     <!-- TAB: CLIENTES -->
@@ -711,6 +712,21 @@ if(sessionStorage.getItem('climapro_admin')==='1'){
           <button class="btn-purple" style="flex:1;" onclick="guardarCliente()">Guardar cliente</button>
           <button class="btn-outline" id="btn-cancelar-edit" style="display:none;" onclick="cancelarEdicion()">Cancelar</button>
         </div>
+      </div>
+    </div>
+
+    <!-- TAB: TÉCNICOS -->
+    <div class="admin-content" id="tab-tecnicos">
+      <div class="a-card">
+        <div class="a-card-title">🔧 Técnicos habilitados</div>
+        <div style="font-size:12px;color:var(--text3);margin-bottom:10px;">
+          Los técnicos <strong>activos</strong> aparecen en el selector del formulario de visita. Desactivar a alguien no borra ni afecta las guías que ya generó — solo deja de aparecer como opción para nuevas visitas.
+        </div>
+        <div style="display:flex;gap:8px;margin-bottom:14px;">
+          <input type="text" id="tec-nombre-nuevo" placeholder="Nombre del nuevo técnico (ej: Juan P.)" style="flex:1;padding:9px 11px;border-radius:var(--radius-sm);border:0.5px solid var(--gray3);font-family:var(--font);font-size:13px;background:var(--white);color:var(--text);" onkeydown="if(event.key==='Enter')agregarTecnico()">
+          <button class="btn-purple" onclick="agregarTecnico()">+ Agregar</button>
+        </div>
+        <div id="tec-lista"></div>
       </div>
     </div>
   </div>
@@ -1590,11 +1606,91 @@ async function guardarChecklist(){
 }
 
 function adminTab(tab){
-  const tabs=['scorecard','clientes','historial','nuevo-cliente'];
+  const tabs=['scorecard','clientes','historial','nuevo-cliente','tecnicos'];
   document.querySelectorAll('.admin-tab').forEach((t,i)=>t.classList.toggle('active',tabs[i]===tab));
   document.querySelectorAll('.admin-content').forEach(c=>c.classList.remove('active'));
   document.getElementById('tab-'+tab).classList.add('active');
   if(tab==='scorecard') cargarScorecard();
+  if(tab==='tecnicos') cargarTecnicos();
+}
+
+// ── GESTIÓN DE TÉCNICOS ───────────────────────────────────
+let _tecnicos=[];
+
+async function cargarTecnicos(){
+  const cont=document.getElementById('tec-lista');
+  cont.innerHTML='<div class="loading-sm">⏳ Cargando técnicos...</div>';
+  try{
+    _tecnicos=await sbGet('tecnicos','order=orden.asc.nullslast,nombre.asc');
+    renderTecnicos();
+  }catch(e){cont.innerHTML='⚠️ Error: '+e.message;}
+}
+
+function _tecRowHtml(t, idx, total){
+  const activo=t.activo;
+  const nombreSeguro=(t.nombre||'').replace(/"/g,'&quot;');
+  return `<div class="sc-client-row" style="cursor:default;">
+      <div style="display:flex;flex-direction:column;gap:2px;">
+        <button class="btn-outline" style="padding:1px 6px;font-size:9px;line-height:1.4;${idx===0?'opacity:.3;pointer-events:none;':''}" onclick="moverTecnico('${t.id}',-1)">▲</button>
+        <button class="btn-outline" style="padding:1px 6px;font-size:9px;line-height:1.4;${idx===total-1?'opacity:.3;pointer-events:none;':''}" onclick="moverTecnico('${t.id}',1)">▼</button>
+      </div>
+      <input type="text" value="${nombreSeguro}" style="flex:1;padding:6px 8px;border-radius:var(--radius-sm);border:0.5px solid var(--gray3);font-family:var(--font);font-size:13px;background:var(--white);color:var(--text);" onchange="renombrarTecnico('${t.id}', this.value)">
+      <span class="sc-pill ${activo?'sc-pill-ok':'sc-pill-late'}" style="cursor:pointer;user-select:none;" onclick="toggleTecnicoActivo('${t.id}', ${!activo})">${activo?'Activo':'Inactivo'}</span>
+    </div>`;
+}
+
+function renderTecnicos(){
+  const cont=document.getElementById('tec-lista');
+  if(!_tecnicos.length){cont.innerHTML='<div class="sc-more-box">Sin técnicos registrados aún. Agrega el primero arriba.</div>';return;}
+  cont.innerHTML=_tecnicos.map((t,i)=>_tecRowHtml(t,i,_tecnicos.length)).join('');
+}
+
+async function agregarTecnico(){
+  const inp=document.getElementById('tec-nombre-nuevo');
+  const nombre=inp.value.trim();
+  if(!nombre)return;
+  if(_tecnicos.some(t=>t.nombre.toLowerCase()===nombre.toLowerCase())){alert('Ya existe un técnico con ese nombre.');return;}
+  try{
+    const maxOrden=_tecnicos.reduce((m,t)=>Math.max(m,t.orden||0),0);
+    const creado=await sbPost('tecnicos',{nombre,activo:true,orden:maxOrden+1});
+    _tecnicos.push(creado[0]);
+    inp.value='';
+    renderTecnicos();
+  }catch(e){alert('Error al agregar: '+e.message);}
+}
+
+async function toggleTecnicoActivo(id, nuevoActivo){
+  try{
+    await sbPatch('tecnicos',id,{activo:nuevoActivo});
+    const t=_tecnicos.find(x=>x.id===id);
+    if(t)t.activo=nuevoActivo;
+    renderTecnicos();
+  }catch(e){alert('Error al actualizar: '+e.message);}
+}
+
+async function renombrarTecnico(id, nuevoNombre){
+  nuevoNombre=(nuevoNombre||'').trim();
+  const t=_tecnicos.find(x=>x.id===id);
+  if(!nuevoNombre||!t){renderTecnicos();return;}
+  if(nuevoNombre===t.nombre)return;
+  try{
+    await sbPatch('tecnicos',id,{nombre:nuevoNombre});
+    t.nombre=nuevoNombre;
+  }catch(e){alert('Error al renombrar: '+e.message);renderTecnicos();}
+}
+
+async function moverTecnico(id, direccion){
+  const idx=_tecnicos.findIndex(t=>t.id===id);
+  const otroIdx=idx+direccion;
+  if(idx<0||otroIdx<0||otroIdx>=_tecnicos.length)return;
+  const a=_tecnicos[idx], b=_tecnicos[otroIdx];
+  const ordenA=a.orden, ordenB=b.orden;
+  try{
+    await Promise.all([sbPatch('tecnicos',a.id,{orden:ordenB}),sbPatch('tecnicos',b.id,{orden:ordenA})]);
+    a.orden=ordenB; b.orden=ordenA;
+    _tecnicos.sort((x,y)=>(x.orden||0)-(y.orden||0));
+    renderTecnicos();
+  }catch(e){alert('Error al reordenar: '+e.message);}
 }
 
 // ── WIZARD TÉCNICO ────────────────────────────────────────
