@@ -342,7 +342,7 @@ if(sessionStorage.getItem('climapro_admin')==='1'){
 </script>
 
 <div style="text-align:right;padding:0 0 8px;font-family:var(--font);">
-  <a href="/" style="font-size:12px;color:#6E6B65;text-decoration:none;">
+  <a href="index.html" style="font-size:12px;color:#6E6B65;text-decoration:none;">
     ← Ir al formulario de visita
   </a>
 </div>
@@ -358,25 +358,14 @@ if(sessionStorage.getItem('climapro_admin')==='1'){
   </div>
   <div class="admin-body">
     <div class="admin-tabs">
-      <button class="admin-tab active" onclick="adminTab('alertas')">🚨 Alertas</button>
-      <button class="admin-tab" onclick="adminTab('clientes')">👥 Clientes</button>
+      <button class="admin-tab active" onclick="adminTab('clientes')">👥 Clientes</button>
       <button class="admin-tab" onclick="adminTab('historial')">📋 Historial</button>
       <button class="admin-tab" onclick="adminTab('scorecard')">📊 Scorecard</button>
       <button class="admin-tab" onclick="adminTab('nuevo-cliente')">➕ Nuevo</button>
     </div>
 
-    <!-- TAB: ALERTAS -->
-    <div class="admin-content active" id="tab-alertas">
-      <div class="dash-grid" id="dash-metrics">
-        <div class="dash-metric dash-metric-click" onclick="alertasIndAtrasados()"><div class="dash-val" id="d-atrasados" style="color:var(--red-dark);">—</div><div class="dash-label">Atrasados</div></div>
-        <div class="dash-metric dash-metric-click" onclick="alertasIndProximos()"><div class="dash-val" id="d-proximos" style="color:var(--amber-dark);">—</div><div class="dash-label">Próximos</div></div>
-        <div class="dash-metric dash-metric-click" onclick="alertasIndAlDia()"><div class="dash-val" id="d-al-dia" style="color:var(--green-dark);">—</div><div class="dash-label">Al día</div></div>
-      </div>
-      <div id="lista-alertas-dash"><div class="loading-sm">⏳ Cargando alertas...</div></div>
-    </div>
-
     <!-- TAB: CLIENTES -->
-    <div class="admin-content" id="tab-clientes">
+    <div class="admin-content active" id="tab-clientes">
       <div class="success-msg" id="msg-cliente">✅ Cliente guardado</div>
       <div style="font-size:12px;color:var(--text3);margin-bottom:8px;">🔴 Atrasado · 🟡 Próximo · 🟢 Al día · ⚫ Sin frecuencia</div>
       <div style="background:var(--white);border-radius:var(--radius-sm);border:0.5px solid var(--gray2);overflow:hidden;">
@@ -910,70 +899,10 @@ async function cargarClientes(){
     clientes=clientes.map(c=>({...c,_ultimaVisita:ultimaVisita[c.nombre]||null,_alerta:calcularAlerta(c,ultimaVisita[c.nombre]||null)}));
     renderClientes();
     actualizarSelect();
-    renderAlertas();
     actualizarSelectHistorial();
     actualizarSelectesAdmin();
   }catch(e){document.getElementById('lista-clientes').innerHTML=`<div class="empty-sm">⚠️ ${e.message}</div>`;}
 }
-
-function renderAlertas(){
-  const atrasados=clientes.filter(c=>c._alerta.estado==='atrasado');
-  const proximos=clientes.filter(c=>c._alerta.estado==='proximo');
-  const alDia=clientes.filter(c=>c._alerta.estado==='al_dia');
-  document.getElementById('d-atrasados').textContent=atrasados.length;
-  document.getElementById('d-proximos').textContent=proximos.length;
-  document.getElementById('d-al-dia').textContent=alDia.length;
-
-  const cont=document.getElementById('lista-alertas-dash');
-  if(atrasados.length===0&&proximos.length===0){
-    cont.innerHTML='<div class="empty-sm" style="color:var(--green-dark);">✅ Todos los clientes al día</div>';return;
-  }
-  let html='';
-  [...atrasados,...proximos].forEach(c=>{
-    const a=c._alerta;
-    const cls=a.estado==='atrasado'?'alerta-roja':'alerta-amarilla';
-    const icono=a.estado==='atrasado'?'🔴':'🟡';
-    html+=`<div class="alerta-banner ${cls}">
-      <span style="font-size:16px;flex-shrink:0;">${icono}</span>
-      <div style="flex:1;">
-        <div style="font-weight:500;">${c.nombre}</div>
-        <div style="font-size:11px;margin-top:1px;">${FREC_LABEL[c.frecuencia_mantencion]||''} · ${a.label} · Última: ${c._ultimaVisita||'sin visitas'}</div>
-      </div>
-      <button class="btn-edit" onclick="verClienteEnHistorial('${c.id}')">Ver</button>
-    </div>`;
-  });
-  cont.innerHTML=html;
-}
-
-// ── DETALLE DE INDICADOR: pestaña Alertas (Atrasados / Próximos / Al día) ──
-function alertasAbrirDetalle(titulo, lista){
-  document.getElementById('sci-title').textContent = titulo + ' (' + lista.length + ')';
-  const cont = document.getElementById('sci-content');
-  if(!lista.length){
-    cont.innerHTML = '<div class="empty-sm">No hay clientes en este estado</div>';
-  } else {
-    cont.innerHTML = lista.map(c=>{
-      const a = c._alerta;
-      return `<div class="hist-row" style="cursor:default;">
-        <div style="display:flex;align-items:center;gap:6px;margin-bottom:2px;justify-content:space-between;">
-          <span class="hist-fecha">${c.nombre}</span>
-          <button class="btn-teal-sm" style="font-size:10px;padding:3px 10px;" onclick="cerrarIndicadorYVerHistorial('${c.id}')">👁 Ver</button>
-        </div>
-        <div class="hist-meta">${FREC_LABEL[c.frecuencia_mantencion]||'Sin frecuencia'} · ${a.label} · Última: ${c._ultimaVisita||'sin visitas'}</div>
-      </div>`;
-    }).join('');
-  }
-  document.getElementById('modal-sc-indicador').classList.add('show');
-}
-
-function cerrarIndicadorYVerHistorial(id){
-  document.getElementById('modal-sc-indicador').classList.remove('show');
-  verClienteEnHistorial(id);
-}
-
-function alertasIndAtrasados(){ alertasAbrirDetalle('🔴 Clientes atrasados', clientes.filter(c=>c._alerta.estado==='atrasado')); }
-function alertasIndProximos(){ alertasAbrirDetalle('🟡 Clientes próximos a vencer', clientes.filter(c=>c._alerta.estado==='proximo')); }
-function alertasIndAlDia(){ alertasAbrirDetalle('🟢 Clientes al día', clientes.filter(c=>c._alerta.estado==='al_dia')); }
 
 function renderClientes(){
   const c=document.getElementById('lista-clientes');
@@ -1010,15 +939,6 @@ function actualizarSelectesAdmin(){
   const valPrevio=s.value;
   s.innerHTML='<option value="">Cambiar cliente...</option>'+clientes.map(c=>`<option value="${c.id}">${c.nombre}</option>`).join('');
   if(valPrevio) s.value=valPrevio;
-}
-
-function verClienteEnHistorial(id){
-  adminTab('historial');
-  const sel=document.getElementById('hist-cliente-sel');
-  if(sel){
-    sel.value=id;
-    cargarHistorial();
-  }
 }
 
 // ── HISTORIAL ────────────────────────────────────────────
@@ -1636,7 +1556,7 @@ async function guardarChecklist(){
 }
 
 function adminTab(tab){
-  const tabs=['alertas','clientes','historial','scorecard','nuevo-cliente'];
+  const tabs=['clientes','historial','scorecard','nuevo-cliente'];
   document.querySelectorAll('.admin-tab').forEach((t,i)=>t.classList.toggle('active',tabs[i]===tab));
   document.querySelectorAll('.admin-content').forEach(c=>c.classList.remove('active'));
   document.getElementById('tab-'+tab).classList.add('active');
