@@ -1171,6 +1171,17 @@ async function marcarParticularContactado(nombre, marcarComoContactado){
     }
     c.estado_seguimiento = nuevoEstado;
     filtrarVisitasParticulares();
+    // Actualizar el Scorecard al instante (Particulares: Pendientes/Contactados)
+    _scActualizarSeguimiento(c.nombre, {estado_seguimiento: nuevoEstado}, {
+      nombre: c.nombre,
+      direccion: c.direccion || null,
+      contacto: c.contacto || null,
+      total_visitas: c.total_visitas,
+      fecha_ultima_visita: c.fecha_ultima_visita || null,
+      ultimo_numero_guia: c.ultimo_numero_guia || null,
+      ultimo_tecnico: c.ultimo_tecnico || null,
+      estado_seguimiento: nuevoEstado
+    });
   }catch(e){
     alert('Error actualizando: '+e.message);
   }
@@ -1389,7 +1400,7 @@ async function guardarEdicionGuia(){
     });
 
     const nuevoReporte=creado[0];
-    _scData=null; // invalidar caché del scorecard para que la próxima carga refleje la nueva versión
+    _scForzarRecarga(); // recarga real el scorecard ahora mismo (fila nueva por versionado), no espera a la próxima visita a la pestaña
 
     document.getElementById('btn-editar-guia').style.display='';
     document.getElementById('btn-pdf-guia').style.display='';
@@ -2638,8 +2649,8 @@ async function togglePresupEnviado(reporteId, marcarEnviado){
       reporteActual.presup_fecha_envio=data.presup_fecha_envio;
       verDetalleVisita(reporteActual);
     }
-    // Invalidar scorecard cache
-    _scData=null;
+    // Actualizar el Scorecard al instante (sin esperar a recargar la pestaña)
+    _scActualizarReporte(reporteId, data);
     // Recargar historial si está visible
     if(document.getElementById('tab-historial').classList.contains('active')){
       cargarHistorial();
@@ -2673,6 +2684,35 @@ function _scEnRango(fechaStr){
 }
 function _scReportes(){ return _scData ? _scData.reportes.filter(r=>_scEnRango(r.fecha)) : []; }
 function _scSpots(){ return _scData ? _scData.spots.filter(r=>_scEnRango(r.fecha)) : []; }
+
+// ── REFRESCO EN VIVO: mantiene el Scorecard al día tras cualquier gestión (sin esperar a recargar la pestaña) ──
+function _scRerenderSiCargado(){
+  if(!_scData)return;
+  renderScorecard();
+  renderPredictivo();
+}
+// Parchea un reporte ya cacheado (ej: togglePresupEnviado) y refresca el Scorecard al instante
+function _scActualizarReporte(reporteId, patch){
+  if(!_scData)return;
+  [_scData.reportes, _scData.spots].forEach(arr=>{
+    const rep=arr && arr.find(x=>x.id===reporteId);
+    if(rep)Object.assign(rep, patch);
+  });
+  _scRerenderSiCargado();
+}
+// Parchea/crea un registro de seguimiento de particulares (ej: marcarParticularContactado) y refresca
+function _scActualizarSeguimiento(nombre, patch, nuevoRegistro){
+  if(!_scData)return;
+  const idx=_scData.seguimiento.findIndex(s=>s.nombre===nombre);
+  if(idx>=0) Object.assign(_scData.seguimiento[idx], patch);
+  else if(nuevoRegistro) _scData.seguimiento.push(nuevoRegistro);
+  _scRerenderSiCargado();
+}
+// Cambios estructurales (nueva versión de guía vía INSERT): forzar recarga real inmediata, no esperar a la próxima visita a la pestaña
+function _scForzarRecarga(){
+  _scData=null;
+  cargarScorecard();
+}
 
 function scInitFiltroFecha(){
   const selMes=document.getElementById('sc-filtro-mes');
