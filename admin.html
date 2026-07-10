@@ -21,6 +21,12 @@
 /* Scorecard */
 .sc-subtab{padding:6px 12px;border-radius:var(--radius-sm);font-size:11px;font-weight:600;cursor:pointer;border:0.5px solid var(--gray3);background:var(--gray);color:var(--text2);font-family:var(--font);}
 .sc-subtab.active{background:#00AEEF;color:#fff;border-color:#00AEEF;}
+.sc-filtro-bar{background:var(--gray);border:0.5px solid var(--gray2);border-radius:var(--radius-sm);padding:8px 10px;margin-bottom:12px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
+.sc-filtro-btn{padding:6px 12px;border-radius:var(--radius-sm);font-size:11px;font-weight:600;cursor:pointer;border:0.5px solid var(--gray3);background:var(--white);color:var(--text2);font-family:var(--font);}
+.sc-filtro-btn.active{background:#F04020;color:#fff;border-color:#F04020;}
+.sc-filtro-ctrl{display:flex;gap:6px;align-items:center;}
+.sc-filtro-ctrl select,.sc-filtro-ctrl input[type=date]{padding:6px 8px;border-radius:var(--radius-sm);border:0.5px solid var(--gray3);font-family:var(--font);font-size:12px;background:var(--white);color:var(--text);}
+.sc-filtro-label{margin-left:auto;font-size:10px;color:var(--text3);font-family:'IBM Plex Mono','DM Mono',monospace;letter-spacing:.04em;}
 .sc-section-label{font-size:10px;font-weight:600;color:var(--text3);letter-spacing:.08em;margin-bottom:6px;text-transform:uppercase;font-family:'IBM Plex Mono','DM Mono',monospace;}
 .sc-grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;}
 .sc-grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;}
@@ -358,14 +364,14 @@ if(sessionStorage.getItem('climapro_admin')==='1'){
   </div>
   <div class="admin-body">
     <div class="admin-tabs">
-      <button class="admin-tab active" onclick="adminTab('clientes')">👥 Clientes</button>
+      <button class="admin-tab active" onclick="adminTab('scorecard')">📊 Scorecard</button>
+      <button class="admin-tab" onclick="adminTab('clientes')">👥 Clientes</button>
       <button class="admin-tab" onclick="adminTab('historial')">📋 Historial</button>
-      <button class="admin-tab" onclick="adminTab('scorecard')">📊 Scorecard</button>
       <button class="admin-tab" onclick="adminTab('nuevo-cliente')">➕ Nuevo</button>
     </div>
 
     <!-- TAB: CLIENTES -->
-    <div class="admin-content active" id="tab-clientes">
+    <div class="admin-content" id="tab-clientes">
       <div class="success-msg" id="msg-cliente">✅ Cliente guardado</div>
       <div style="font-size:12px;color:var(--text3);margin-bottom:8px;">🔴 Atrasado · 🟡 Próximo · 🟢 Al día · ⚫ Sin frecuencia</div>
       <div style="background:var(--white);border-radius:var(--radius-sm);border:0.5px solid var(--gray2);overflow:hidden;">
@@ -546,7 +552,7 @@ if(sessionStorage.getItem('climapro_admin')==='1'){
     </div>
 
     <!-- TAB: SCORECARD -->
-    <div class="admin-content" id="tab-scorecard">
+    <div class="admin-content active" id="tab-scorecard">
       <div id="sc-loading" class="loading-sm">⏳ Cargando scorecard...</div>
       <div id="sc-main" style="display:none;">
         <!-- Sub-tabs -->
@@ -554,6 +560,23 @@ if(sessionStorage.getItem('climapro_admin')==='1'){
           <button class="sc-subtab active" onclick="scSubTab('cartera')">📊 Cartera con contrato</button>
           <button class="sc-subtab" onclick="scSubTab('particulares')">👤 Particulares</button>
           <button class="sc-subtab" onclick="scSubTab('predictivo')">🔮 Predictivo</button>
+        </div>
+
+        <!-- FILTRO DE FECHAS (aplica a las 3 vistas de arriba) -->
+        <div class="sc-filtro-bar">
+          <button class="sc-filtro-btn" id="sc-filtro-modo-mes" onclick="scFiltroModo('mes')">📅 Mes</button>
+          <button class="sc-filtro-btn" id="sc-filtro-modo-rango" onclick="scFiltroModo('rango')">🗓️ Rango</button>
+          <button class="sc-filtro-btn" id="sc-filtro-modo-todo" onclick="scFiltroModo('todo')">Todo</button>
+          <div class="sc-filtro-ctrl" id="sc-filtro-mes-ctrl">
+            <select id="sc-filtro-mes" onchange="scFiltroAplicar()"></select>
+            <select id="sc-filtro-anio" onchange="scFiltroAplicar()"></select>
+          </div>
+          <div class="sc-filtro-ctrl" id="sc-filtro-rango-ctrl" style="display:none;">
+            <input type="date" id="sc-filtro-desde" onchange="scFiltroAplicar()">
+            <span style="font-size:11px;color:var(--text3);">a</span>
+            <input type="date" id="sc-filtro-hasta" onchange="scFiltroAplicar()">
+          </div>
+          <span class="sc-filtro-label" id="sc-filtro-label"></span>
         </div>
 
         <!-- CARTERA -->
@@ -1556,7 +1579,7 @@ async function guardarChecklist(){
 }
 
 function adminTab(tab){
-  const tabs=['clientes','historial','scorecard','nuevo-cliente'];
+  const tabs=['scorecard','clientes','historial','nuevo-cliente'];
   document.querySelectorAll('.admin-tab').forEach((t,i)=>t.classList.toggle('active',tabs[i]===tab));
   document.querySelectorAll('.admin-content').forEach(c=>c.classList.remove('active'));
   document.getElementById('tab-'+tab).classList.add('active');
@@ -2629,6 +2652,77 @@ async function togglePresupEnviado(reporteId, marcarEnviado){
 let _scData=null;
 let _predData=null;
 
+// ── FILTRO DE FECHAS DEL SCORECARD (aplica a Cartera/Particulares/Predictivo) ──
+const MESES_LABEL=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+let _scFiltro={modo:'mes', mes:new Date().getMonth()+1, anio:new Date().getFullYear(), desde:null, hasta:null};
+
+function _scEnRango(fechaStr){
+  if(_scFiltro.modo==='todo') return true;
+  if(!fechaStr) return false;
+  const f=fechaStr.slice(0,10);
+  if(_scFiltro.modo==='mes'){
+    const target=_scFiltro.anio+'-'+String(_scFiltro.mes).padStart(2,'0');
+    return f.slice(0,7)===target;
+  }
+  if(_scFiltro.modo==='rango'){
+    if(_scFiltro.desde && f<_scFiltro.desde) return false;
+    if(_scFiltro.hasta && f>_scFiltro.hasta) return false;
+    return true;
+  }
+  return true;
+}
+function _scReportes(){ return _scData ? _scData.reportes.filter(r=>_scEnRango(r.fecha)) : []; }
+function _scSpots(){ return _scData ? _scData.spots.filter(r=>_scEnRango(r.fecha)) : []; }
+
+function scInitFiltroFecha(){
+  const selMes=document.getElementById('sc-filtro-mes');
+  const selAnio=document.getElementById('sc-filtro-anio');
+  if(!selMes||!selAnio)return;
+  if(selMes.options.length===0) selMes.innerHTML=MESES_LABEL.map((m,i)=>`<option value="${i+1}">${m}</option>`).join('');
+  if(selAnio.options.length===0){
+    const anioActual=new Date().getFullYear();
+    const anios=[];
+    for(let y=anioActual;y>=anioActual-5;y--)anios.push(y);
+    selAnio.innerHTML=anios.map(y=>`<option value="${y}">${y}</option>`).join('');
+  }
+  selMes.value=_scFiltro.mes;
+  selAnio.value=_scFiltro.anio;
+  scFiltroModo(_scFiltro.modo, true);
+}
+
+function scFiltroModo(modo, silencioso){
+  _scFiltro.modo=modo;
+  ['mes','rango','todo'].forEach(m=>{
+    const btn=document.getElementById('sc-filtro-modo-'+m);
+    if(btn)btn.classList.toggle('active', m===modo);
+  });
+  document.getElementById('sc-filtro-mes-ctrl').style.display=(modo==='mes')?'flex':'none';
+  document.getElementById('sc-filtro-rango-ctrl').style.display=(modo==='rango')?'flex':'none';
+  if(!silencioso) scFiltroAplicar();
+  else _scActualizarLabel();
+}
+
+function scFiltroAplicar(){
+  if(_scFiltro.modo==='mes'){
+    _scFiltro.mes=parseInt(document.getElementById('sc-filtro-mes').value,10);
+    _scFiltro.anio=parseInt(document.getElementById('sc-filtro-anio').value,10);
+  } else if(_scFiltro.modo==='rango'){
+    _scFiltro.desde=document.getElementById('sc-filtro-desde').value||null;
+    _scFiltro.hasta=document.getElementById('sc-filtro-hasta').value||null;
+  }
+  _scActualizarLabel();
+  if(_scData){ renderScorecard(); renderPredictivo(); }
+}
+
+function _scActualizarLabel(){
+  const lbl=document.getElementById('sc-filtro-label');
+  if(!lbl)return;
+  if(_scFiltro.modo==='todo'){ lbl.textContent='Mostrando: todo el historial'; return; }
+  if(_scFiltro.modo==='mes'){ lbl.textContent='Mostrando: '+MESES_LABEL[_scFiltro.mes-1]+' '+_scFiltro.anio; return; }
+  const d=_scFiltro.desde||'…', h=_scFiltro.hasta||'…';
+  lbl.textContent='Mostrando: '+d+' a '+h;
+}
+
 function scSubTab(tab){
   document.querySelectorAll('.sc-subtab').forEach((t,i)=>t.classList.toggle('active',['cartera','particulares','predictivo'][i]===tab));
   document.getElementById('sc-cartera').style.display=tab==='cartera'?'block':'none';
@@ -2675,7 +2769,7 @@ function scUltimoReporteDeCliente(nombreCliente, reportes){
 
 // ── Generadores de detalle por indicador: CARTERA ──
 function scIndTotalClientes(){
-  const contrato=_scData.reportes.filter(r=>!r.es_spot);
+  const contrato=_scReportes().filter(r=>!r.es_spot);
   const items = clientes.map(c=>({
     nombre: c.nombre,
     meta: (FREC_LABEL[c.frecuencia_mantencion]||'Sin frecuencia'),
@@ -2684,7 +2778,7 @@ function scIndTotalClientes(){
   scAbrirIndicador('👥 Clientes activos', items);
 }
 function scIndAtrasados(){
-  const contrato=_scData.reportes.filter(r=>!r.es_spot);
+  const contrato=_scReportes().filter(r=>!r.es_spot);
   const items = clientes.filter(c=>c._alerta.estado==='atrasado').map(c=>({
     nombre: c.nombre,
     meta: (FREC_LABEL[c.frecuencia_mantencion]||'—')+' · '+(c._alerta.label||'Atrasado'),
@@ -2693,7 +2787,7 @@ function scIndAtrasados(){
   scAbrirIndicador('🔴 Clientes atrasados', items);
 }
 function scIndAlDia(){
-  const contrato=_scData.reportes.filter(r=>!r.es_spot);
+  const contrato=_scReportes().filter(r=>!r.es_spot);
   const items = clientes.filter(c=>c._alerta.estado==='al_dia'||c._alerta.estado==='proximo').map(c=>({
     nombre: c.nombre,
     meta: (FREC_LABEL[c.frecuencia_mantencion]||'—')+' · '+(c._alerta.label||'—'),
@@ -2702,7 +2796,7 @@ function scIndAlDia(){
   scAbrirIndicador('🟢 Clientes al día / próximos', items);
 }
 function scIndAlertas(esSpot){
-  const lista=_scData.reportes.filter(r=>!!r.es_spot===!!esSpot);
+  const lista=_scReportes().filter(r=>!!r.es_spot===!!esSpot);
   const items=[];
   lista.forEach(rep=>{
     (rep.secciones||[]).forEach(s=>(s.items||[]).forEach(i=>{
@@ -2716,7 +2810,7 @@ function scIndAlertas(esSpot){
   scAbrirIndicador('⚠️ Alertas acumuladas'+(esSpot?' (particulares)':''), items);
 }
 function scIndProblemas(esSpot){
-  const lista=_scData.reportes.filter(r=>!!r.es_spot===!!esSpot);
+  const lista=_scReportes().filter(r=>!!r.es_spot===!!esSpot);
   const items=[];
   lista.forEach(rep=>{
     (rep.secciones||[]).forEach(s=>(s.items||[]).forEach(i=>{
@@ -2730,7 +2824,7 @@ function scIndProblemas(esSpot){
   scAbrirIndicador('🔴 Problemas críticos'+(esSpot?' (particulares)':''), items);
 }
 function scIndPresupuestos(soloEnviados, esSpot){
-  const lista=_scData.reportes.filter(r=>!!r.es_spot===!!esSpot);
+  const lista=_scReportes().filter(r=>!!r.es_spot===!!esSpot);
   const items = lista.filter(r=>r.req_presup && (!soloEnviados || r.presup_enviado)).map(r=>({
     nombre: r.cliente,
     meta: (r.fecha||'—')+' · '+(r.presup_enviado?'✅ Enviado':'⏳ Pendiente de envío')+(r.presup_desc?' · '+r.presup_desc:''),
@@ -2739,7 +2833,7 @@ function scIndPresupuestos(soloEnviados, esSpot){
   scAbrirIndicador((soloEnviados?'✅ Presupuestos enviados':'💰 Presupuestos solicitados')+(esSpot?' (particulares)':''), items);
 }
 function scIndVisitasTotal(esSpot){
-  const lista=_scData.reportes.filter(r=>!!r.es_spot===esSpot);
+  const lista=_scReportes().filter(r=>!!r.es_spot===esSpot);
   const items = lista.map(r=>({
     nombre: r.cliente,
     meta: (r.fecha||'—')+' · '+(r.tipo_visita||'—')+' · Técnico: '+(r.tecnico||'—'),
@@ -2750,7 +2844,7 @@ function scIndVisitasTotal(esSpot){
 
 // ── Generadores de detalle: PARTICULARES ──
 function scIndSpotTotal(){
-  const items=_scData.spots.map(r=>({
+  const items=_scSpots().map(r=>({
     nombre: r.cliente,
     meta: (r.fecha||'—')+' · Técnico: '+(r.tecnico||'—'),
     reporte: r
@@ -2758,25 +2852,25 @@ function scIndSpotTotal(){
   scAbrirIndicador('👤 Visitas spot', items);
 }
 function scIndSpotUnicos(){
-  const nombres=[...new Set(_scData.spots.map(s=>s.cliente))];
+  const nombres=[...new Set(_scSpots().map(s=>s.cliente))];
   const items=nombres.map(n=>({
     nombre: n,
-    meta: 'Última visita: '+(scUltimoReporteDeCliente(n,_scData.spots)?.fecha||'—'),
-    reporte: scUltimoReporteDeCliente(n,_scData.spots)
+    meta: 'Última visita: '+(scUltimoReporteDeCliente(n,_scSpots())?.fecha||'—'),
+    reporte: scUltimoReporteDeCliente(n,_scSpots())
   }));
   scAbrirIndicador('👤 Clientes particulares únicos', items);
 }
 async function scIndSpotEstado(estadoBuscado){
   const seg = await sbGet('clientes_particulares_seguimiento','select=*').catch(()=>[]);
-  const nombres=[...new Set(_scData.spots.map(s=>s.cliente))];
+  const nombres=[...new Set(_scSpots().map(s=>s.cliente))];
   const items = nombres.filter(n=>{
     const s = seg.find(x=>(x.nombre||'').toLowerCase()===n.toLowerCase());
     const estado = s?.estado_seguimiento || 'pendiente';
     return estado===estadoBuscado;
   }).map(n=>({
     nombre: n,
-    meta: 'Última visita: '+(scUltimoReporteDeCliente(n,_scData.spots)?.fecha||'—'),
-    reporte: scUltimoReporteDeCliente(n,_scData.spots)
+    meta: 'Última visita: '+(scUltimoReporteDeCliente(n,_scSpots())?.fecha||'—'),
+    reporte: scUltimoReporteDeCliente(n,_scSpots())
   }));
   scAbrirIndicador(estadoBuscado==='contactado'?'✅ Particulares contactados':'⏳ Particulares pendientes', items);
 }
@@ -2789,7 +2883,7 @@ function scIndPredRiesgo(){
   const items=(_predData?.riesgos||[]).filter(r=>!r.critico).map(r=>({
     nombre: r.cliente+' — '+r.equipo,
     meta: r.totalIncidencias+' incidencia(s) en '+r.items.length+' ítem(s): '+r.items.map(i=>i.nombre).join(', '),
-    reporte: scUltimoReporteDeCliente(r.cliente, _scData.reportes.filter(x=>!x.es_spot))
+    reporte: scUltimoReporteDeCliente(r.cliente, _scReportes().filter(x=>!x.es_spot))
   }));
   scAbrirIndicador('⚠️ Equipos en riesgo', items);
 }
@@ -2797,7 +2891,7 @@ function scIndPredCriticos(){
   const items=(_predData?.riesgos||[]).filter(r=>r.critico).map(r=>({
     nombre: r.cliente+' — '+r.equipo,
     meta: r.totalIncidencias+' incidencia(s) en '+r.items.length+' ítem(s): '+r.items.map(i=>i.nombre).join(', '),
-    reporte: scUltimoReporteDeCliente(r.cliente, _scData.reportes.filter(x=>!x.es_spot))
+    reporte: scUltimoReporteDeCliente(r.cliente, _scReportes().filter(x=>!x.es_spot))
   }));
   scAbrirIndicador('🔴 Equipos críticos', items);
 }
@@ -2815,6 +2909,7 @@ function scCerrarDrilldown(){
 async function cargarScorecard(){
   const loading=document.getElementById('sc-loading');
   const main=document.getElementById('sc-main');
+  scInitFiltroFecha();
   if(_scData){main.style.display='block';loading.style.display='none';return;}
   loading.style.display='block';main.style.display='none';
   try{
@@ -2833,8 +2928,8 @@ async function cargarScorecard(){
 }
 
 function renderScorecard(){
-  const r=_scData.reportes;
-  const spots=_scData.spots;
+  const r=_scReportes();
+  const spots=_scSpots();
   const seg=_scData.seguimiento;
 
   // ── CARTERA CON CONTRATO ──
@@ -3198,7 +3293,7 @@ async function scDrilldownSpot(nombreCliente){
 
 function renderPredictivo(){
   if(!_scData) return;
-  const reportes=_scData.reportes.filter(r=>!r.es_spot);
+  const reportes=_scReportes().filter(r=>!r.es_spot);
 
   // 1. Construir mapa: cliente → equipo → ítem → [estados por visita]
   const mapa={};
@@ -3338,6 +3433,7 @@ function renderPredictivo(){
 
 
 cargarClientes();
+cargarScorecard();
 if(document.getElementById('firma-canvas'))setTimeout(initFirma,200);
 // Setear fecha de hoy por defecto
 var _fd=document.getElementById('visita-fecha');if(_fd)_fd.value=new Date().toISOString().split('T')[0];
