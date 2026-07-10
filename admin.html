@@ -614,6 +614,7 @@ if(sessionStorage.getItem('climapro_admin')==='1'){
           <div id="sc-tecnicos" class="sc-grid3"></div>
           <div style="border-top:0.5px solid var(--gray2);margin:14px 0;"></div>
           <div class="sc-section-label">CLIENTES — toca para ver detalle</div>
+          <input type="text" id="sc-buscar-cliente" placeholder="🔎 Buscar cliente por nombre..." oninput="renderListaClientesScorecard()" style="width:100%;padding:8px 10px;margin-bottom:8px;border-radius:var(--radius-sm);border:0.5px solid var(--gray3);font-family:var(--font);font-size:13px;background:var(--white);color:var(--text);">
           <div id="sc-lista-clientes"></div>
         </div>
 
@@ -2764,6 +2765,8 @@ async function togglePresupEnviado(reporteId, marcarEnviado){
 
 // ── SCORECARD KPI ─────────────────────────────────────────
 let _scData=null;
+let _scCliSorted=null;
+let _scRepPorCliContrato=null;
 let _predData=null;
 
 // ── FILTRO DE FECHAS DEL SCORECARD (aplica a Cartera/Particulares/Predictivo) ──
@@ -3132,32 +3135,16 @@ function renderScorecard(){
     }).join('');
   }
 
-  // Lista de clientes
-  const cliSorted=[...clientes].sort((a,b)=>{
+  // Lista de clientes — TODOS los clientes con contrato vigente, incluidos los que están al día
+  _scCliSorted=[...clientes].sort((a,b)=>{
     const ord={al_dia:0,proximo:1,atrasado:2,sin_alerta:3};
     return (ord[a._alerta.estado]||3)-(ord[b._alerta.estado]||3);
   });
   // Agrupar reportes por cliente nombre
-  const repPorCli={};
-  contrato.forEach(rep=>{const n=rep.cliente;if(!repPorCli[n])repPorCli[n]=[];repPorCli[n].push(rep);});
+  _scRepPorCliContrato={};
+  contrato.forEach(rep=>{const n=rep.cliente;if(!_scRepPorCliContrato[n])_scRepPorCliContrato[n]=[];_scRepPorCliContrato[n].push(rep);});
 
-  const listaCont=document.getElementById('sc-lista-clientes');
-  const maxShow=15;
-  const shown=cliSorted.slice(0,maxShow);
-  const rest=cliSorted.length-maxShow;
-  listaCont.innerHTML=shown.map(c=>{
-    const a=c._alerta;
-    const pillCls=a.estado==='al_dia'?'sc-pill-ok':a.estado==='proximo'?'sc-pill-warn':'sc-pill-late';
-    const pillTxt=a.estado==='al_dia'?'Al día':a.estado==='proximo'?'Próximo':'Atrasado';
-    const reps=repPorCli[c.nombre]||[];
-    const freq=FREC_LABEL[c.frecuencia_mantencion]||'—';
-    return`<div class="sc-client-row" onclick="scDrilldown('${c.id}')">
-      <span class="sc-pill ${pillCls}">${pillTxt}</span>
-      <span class="sc-name">${c.nombre}</span>
-      <span class="sc-info">${reps.length} vis. · ${freq}</span>
-      <span style="color:var(--text3);font-size:13px;">›</span>
-    </div>`;
-  }).join('')+(rest>0?`<div class="sc-more-box">+ ${rest} clientes más</div>`:'');
+  renderListaClientesScorecard();
 
   // ── PARTICULARES ──
   document.getElementById('sc-spot-total').textContent=spots.length;
@@ -3212,6 +3199,34 @@ function renderScorecard(){
   document.getElementById('sc-spot-tecnicos').innerHTML=spotTecArr.map(([name,count])=>{
     const pct=Math.round((count/spotMax)*100);
     return`<div class="sc-tech-card"><div class="sc-tech-name">${name}</div><div class="sc-tech-meta">${count} particular${count>1?'es':''}</div><div class="sc-stripe" style="--pct:${pct}%"></div></div>`;
+  }).join('');
+}
+
+// Lista de clientes del Scorecard (Cartera con contrato) — todos los clientes, con buscador en vivo
+function renderListaClientesScorecard(){
+  const listaCont=document.getElementById('sc-lista-clientes');
+  if(!listaCont || !_scCliSorted) return;
+  const buscarInput=document.getElementById('sc-buscar-cliente');
+  const termino=(buscarInput?buscarInput.value:'').trim().toLowerCase();
+  const filtrados=termino ? _scCliSorted.filter(c=>(c.nombre||'').toLowerCase().includes(termino)) : _scCliSorted;
+
+  if(!filtrados.length){
+    listaCont.innerHTML='<div class="sc-more-box">'+(termino?`Sin coincidencias para "${termino}"`:'Sin clientes registrados')+'</div>';
+    return;
+  }
+
+  listaCont.innerHTML=filtrados.map(c=>{
+    const a=c._alerta;
+    const pillCls=a.estado==='al_dia'?'sc-pill-ok':a.estado==='proximo'?'sc-pill-warn':a.estado==='sin_alerta'?'sc-pill-gray':'sc-pill-late';
+    const pillTxt=a.estado==='al_dia'?'Al día':a.estado==='proximo'?'Próximo':a.estado==='sin_alerta'?'Sin frecuencia':'Atrasado';
+    const reps=(_scRepPorCliContrato&&_scRepPorCliContrato[c.nombre])||[];
+    const freq=FREC_LABEL[c.frecuencia_mantencion]||'—';
+    return`<div class="sc-client-row" onclick="scDrilldown('${c.id}')">
+      <span class="sc-pill ${pillCls}">${pillTxt}</span>
+      <span class="sc-name">${c.nombre}</span>
+      <span class="sc-info">${reps.length} vis. · ${freq}</span>
+      <span style="color:var(--text3);font-size:13px;">›</span>
+    </div>`;
   }).join('');
 }
 
