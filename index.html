@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>ClimaPro · Mi visita del día</title>
-<link rel="manifest" href="/manifest.json">
+<link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#1D9E75">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
@@ -267,7 +267,7 @@ body{padding:12px;justify-content:center;background:#1D9E75;}
 
 
 <div style="text-align:center;padding:8px 0 4px;font-family:var(--font);">
-  <a href="/admin.html" style="font-size:11px;color:rgba(255,255,255,0.5);text-decoration:none;">
+  <a href="admin.html" style="font-size:11px;color:rgba(255,255,255,0.5);text-decoration:none;">
     Panel de administración →
   </a>
 </div>
@@ -2292,7 +2292,7 @@ if('serviceWorker' in navigator){
     // Verificar que sw.js existe antes de registrar
     fetch('/sw.js', {method:'HEAD'}).then(function(r){
       if(r.ok){
-        navigator.serviceWorker.register('/sw.js').then(function(reg){
+        navigator.serviceWorker.register('sw.js').then(function(reg){
           console.log('SW registrado:', reg.scope);
         }).catch(function(err){
           console.warn('SW no pudo registrarse:', err);

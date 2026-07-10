@@ -2,22 +2,22 @@
 // IMPORTANTE: cada vez que se suban cambios a index.html/admin.html,
 // subir este archivo también (con CACHE_NAME incrementado) para forzar
 // que los celulares descarten la versión vieja guardada localmente.
-const CACHE_NAME = 'climapro-v2';
+const CACHE_NAME = 'climapro-v3';
 const CACHE_URLS = [
-  '/',
-  '/index.html',
-  '/admin.html',
+  './',
+  './index.html',
+  './admin.html',
   'https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=DM+Mono:wght@400;500&display=swap'
 ];
 
 // Rutas del "cascarón" de la app — SIEMPRE se intenta la red primero,
 // para que las actualizaciones se reflejen de inmediato apenas hay señal.
 // Si no hay red, se sirve la última versión guardada (modo offline).
-const APP_SHELL = ['/', '/index.html', '/admin.html'];
+const APP_SHELL_PATHS = ['/index.html', '/admin.html'];
 
 function esAppShell(url){
   const path = new URL(url).pathname;
-  return APP_SHELL.includes(path);
+  return APP_SHELL_PATHS.some(function(shellPath){ return path.endsWith(shellPath); }) || path.endsWith('/');
 }
 
 // Instalar: cachear archivos del sistema
@@ -81,7 +81,7 @@ self.addEventListener('fetch', function(e){
       }).catch(function(){
         // Sin red: servir la última versión guardada
         return caches.match(e.request).then(function(cached){
-          return cached || caches.match('/index.html');
+          return cached || caches.match('./index.html');
         });
       })
     );
