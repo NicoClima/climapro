@@ -236,9 +236,75 @@ body{font-family:var(--font);background:#e0e0dc;display:flex;align-items:flex-st
 .dash-val{font-size:26px;font-weight:600;font-family:var(--font-mono);}
 .dash-label{font-size:11px;color:var(--text3);margin-top:2px;}
 .dash-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px;}
+
+/* Pantalla de acceso del wizard (técnicos) */
+#login-screen-wizard{
+  position:fixed;inset:0;background:var(--teal);
+  display:flex;align-items:center;justify-content:center;
+  z-index:9999;font-family:var(--font);
+}
+.login-box-wizard{
+  background:var(--white);border-radius:20px;padding:36px 32px;
+  width:320px;max-width:90vw;text-align:center;box-shadow:0 12px 48px rgba(0,0,0,0.2);
+}
+.login-title-wizard{font-size:16px;font-weight:600;color:var(--text);margin-bottom:4px;}
+.login-sub-wizard{font-size:13px;color:var(--text2);margin-bottom:24px;}
+.login-input-wizard{
+  width:100%;padding:12px 14px;border-radius:10px;
+  border:1.5px solid var(--gray2);font-size:15px;font-family:inherit;
+  text-align:center;letter-spacing:4px;color:var(--text);
+  margin-bottom:8px;outline:none;
+}
+.login-input-wizard:focus{border-color:var(--teal);}
+.login-btn-wizard{
+  width:100%;padding:13px;border-radius:10px;border:none;
+  background:var(--teal);color:#fff;font-size:15px;font-weight:600;
+  cursor:pointer;font-family:inherit;margin-top:6px;
+}
+.login-btn-wizard:hover{background:var(--teal-dark);}
+.login-error-wizard{
+  font-size:12px;color:var(--red);margin-top:8px;display:none;
+}
 </style>
 </head>
 <body>
+<!-- ACCESO WIZARD (técnicos) -->
+<div id="login-screen-wizard">
+  <div class="login-box-wizard">
+    <div class="login-title-wizard">Ingeniería y Servicios Climatermic</div>
+    <div class="login-sub-wizard">Acceso técnico — ingresa tu clave</div>
+    <input type="password" class="login-input-wizard" id="login-pwd-wizard"
+           placeholder="••••••••" maxlength="20"
+           onkeydown="if(event.key==='Enter')checkLoginWizard()">
+    <button class="login-btn-wizard" onclick="checkLoginWizard()">Ingresar</button>
+    <div class="login-error-wizard" id="login-error-wizard">Clave incorrecta. Intenta nuevamente.</div>
+  </div>
+</div>
+<script>
+function checkLoginWizard(){
+  var pwd=document.getElementById('login-pwd-wizard').value;
+  if(pwd==='Climatech'){
+    document.getElementById('login-screen-wizard').style.display='none';
+    // Persistente (localStorage): se pide una sola vez por dispositivo/navegador,
+    // no interrumpe el uso diario en terreno entre visitas.
+    localStorage.setItem('climapro_wizard_auth','1');
+  } else {
+    var err=document.getElementById('login-error-wizard');
+    err.style.display='block';
+    document.getElementById('login-pwd-wizard').value='';
+    document.getElementById('login-pwd-wizard').focus();
+    setTimeout(function(){err.style.display='none';},3000);
+  }
+}
+// Si ya autenticó antes en este dispositivo, saltar la pantalla de acceso
+if(localStorage.getItem('climapro_wizard_auth')==='1'){
+  window.addEventListener('DOMContentLoaded',function(){
+    var ls=document.getElementById('login-screen-wizard');
+    if(ls)ls.style.display='none';
+  });
+}
+</script>
+
 <!-- MODAL BORRADOR -->
 <div id="borrador-modal">
   <div class="borrador-box">
@@ -2436,10 +2502,14 @@ async function sincronizarDatos(){
     var chks = await sbGet('checklists','select=*');
     guardarEnCache(CACHE_KEY_CHECKLISTS, chks);
 
-    // Técnicos habilitados
-    var tecs = await sbGet('tecnicos','activo=eq.true&order=orden.asc.nullslast,nombre.asc');
-    guardarEnCache(CACHE_KEY_TECNICOS, tecs);
-    poblarSelectTecnicos(tecs);
+    // Técnicos habilitados (en try propio: si falla, no debe tumbar la sincronización de clientes/equipos/checklists)
+    try{
+      var tecs = await sbGet('tecnicos','activo=eq.true&order=orden.asc.nullslast,nombre.asc');
+      guardarEnCache(CACHE_KEY_TECNICOS, tecs);
+      poblarSelectTecnicos(tecs);
+    }catch(eTec){
+      console.warn('Sync de técnicos falló (no crítico):', eTec);
+    }
 
     // Marcar tiempo de sincronización
     localStorage.setItem(CACHE_KEY_SYNC, Date.now().toString());
