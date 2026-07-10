@@ -2582,7 +2582,14 @@ ${secciones.map(s=>{
     return `<div class="foto-eq-head">${s.label}${s.ubicacion?' · '+s.ubicacion:''}</div>
       <div class="foto-grid">${fotosItemsHTML}${fotosSeccionHTML}</div>`;
   }).join('')}
-</div><!-- fin página 2 (fotos) -->
+<div class="gs-footer">
+  <div class="footer-bar"></div>
+  <div class="footer-content">
+    <div><span class="footer-bold">Climatermic Ingeniería y Servicios</span><br>www.climatermic.cl  ·  servicios@climatermic.cl  ·  +562 2 372 7585</div>
+    <div style="text-align:right;">Guía N° ${numGuia}  ·  ${r.fecha||'—'}</div>
+  </div>
+</div>
+</div><!-- fin página 3 (fotos) -->
 `:''}
 
 <scr'+'ipt>window.onload=function(){window.print();}<\/scr'+'ipt>
