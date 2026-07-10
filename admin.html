@@ -577,6 +577,12 @@ if(sessionStorage.getItem('climapro_admin')==='1'){
             <span style="font-size:11px;color:var(--text3);">a</span>
             <input type="date" id="sc-filtro-hasta" onchange="scFiltroAplicar()">
           </div>
+          <div class="sc-filtro-ctrl" style="border-left:0.5px solid var(--gray3);padding-left:8px;margin-left:2px;">
+            <span style="font-size:11px;">👤</span>
+            <select id="sc-filtro-cliente" onchange="scFiltroClienteAplicar()">
+              <option value="">Todos los clientes</option>
+            </select>
+          </div>
           <span class="sc-filtro-label" id="sc-filtro-label"></span>
         </div>
 
@@ -605,10 +611,6 @@ if(sessionStorage.getItem('climapro_admin')==='1'){
               <span id="sc-presup-count">0 de 0</span>
             </div>
             <div class="sc-bar" style="height:6px;"><div class="sc-bar-fill" id="sc-presup-bar" style="width:0%;background:#00AEEF;"></div></div>
-          </div>
-          <div class="sc-grid4" style="margin-top:8px;">
-            <div class="sc-kpi sc-kpi-click" style="grid-column:span 2;" onclick="scIndVisitasTotal(false)"><div class="sc-kpi-val" id="sc-visitas-total">—</div><div class="sc-kpi-lbl">Visitas totales (contrato)</div></div>
-            <div class="sc-kpi sc-kpi-click" style="grid-column:span 2;" onclick="scIndVisitasTotal(true)"><div class="sc-kpi-val" id="sc-visitas-spot-total">—</div><div class="sc-kpi-lbl">Visitas particulares</div></div>
           </div>
           <div class="sc-section-label" style="margin-top:12px;">CARGA POR TÉCNICO</div>
           <div id="sc-tecnicos" class="sc-grid3"></div>
@@ -2772,6 +2774,7 @@ let _predData=null;
 // ── FILTRO DE FECHAS DEL SCORECARD (aplica a Cartera/Particulares/Predictivo) ──
 const MESES_LABEL=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
 let _scFiltro={modo:'mes', mes:new Date().getMonth()+1, anio:new Date().getFullYear(), desde:null, hasta:null};
+let _scFiltroCliente=''; // '' = todos los clientes
 
 function _scEnRango(fechaStr){
   if(_scFiltro.modo==='todo') return true;
@@ -2788,8 +2791,13 @@ function _scEnRango(fechaStr){
   }
   return true;
 }
-function _scReportes(){ return _scData ? _scData.reportes.filter(r=>_scEnRango(r.fecha)) : []; }
-function _scSpots(){ return _scData ? _scData.spots.filter(r=>_scEnRango(r.fecha)) : []; }
+function _scPasaFiltros(r){
+  if(!_scEnRango(r.fecha)) return false;
+  if(_scFiltroCliente && r.cliente!==_scFiltroCliente) return false;
+  return true;
+}
+function _scReportes(){ return _scData ? _scData.reportes.filter(_scPasaFiltros) : []; }
+function _scSpots(){ return _scData ? _scData.spots.filter(_scPasaFiltros) : []; }
 
 // ── REFRESCO EN VIVO: mantiene el Scorecard al día tras cualquier gestión (sin esperar a recargar la pestaña) ──
 function _scRerenderSiCargado(){
@@ -2863,10 +2871,31 @@ function scFiltroAplicar(){
 function _scActualizarLabel(){
   const lbl=document.getElementById('sc-filtro-label');
   if(!lbl)return;
-  if(_scFiltro.modo==='todo'){ lbl.textContent='Mostrando: todo el historial'; return; }
-  if(_scFiltro.modo==='mes'){ lbl.textContent='Mostrando: '+MESES_LABEL[_scFiltro.mes-1]+' '+_scFiltro.anio; return; }
-  const d=_scFiltro.desde||'…', h=_scFiltro.hasta||'…';
-  lbl.textContent='Mostrando: '+d+' a '+h;
+  let texto;
+  if(_scFiltro.modo==='todo'){ texto='todo el historial'; }
+  else if(_scFiltro.modo==='mes'){ texto=MESES_LABEL[_scFiltro.mes-1]+' '+_scFiltro.anio; }
+  else { const d=_scFiltro.desde||'…', h=_scFiltro.hasta||'…'; texto=d+' a '+h; }
+  if(_scFiltroCliente) texto+=' · '+_scFiltroCliente;
+  lbl.textContent='Mostrando: '+texto;
+}
+
+// Poblar el select de cliente con clientes de contrato + particulares/spot (nombres únicos, combinados)
+function scInitFiltroCliente(){
+  const sel=document.getElementById('sc-filtro-cliente');
+  if(!sel) return;
+  const valorActual=sel.value;
+  const nombresContrato=(clientes||[]).map(c=>c.nombre).filter(Boolean);
+  const nombresSpot=_scData?[...new Set(_scData.spots.map(s=>s.cliente))].filter(Boolean):[];
+  const todos=[...new Set([...nombresContrato,...nombresSpot])].sort((a,b)=>a.localeCompare(b,'es'));
+  sel.innerHTML='<option value="">Todos los clientes</option>'+todos.map(n=>`<option value="${n.replace(/"/g,'&quot;')}">${n}</option>`).join('');
+  if(valorActual && todos.includes(valorActual)) sel.value=valorActual;
+}
+
+function scFiltroClienteAplicar(){
+  const sel=document.getElementById('sc-filtro-cliente');
+  _scFiltroCliente=sel?sel.value:'';
+  _scActualizarLabel();
+  if(_scData){ renderScorecard(); renderPredictivo(); }
 }
 
 function scSubTab(tab){
@@ -2978,16 +3007,6 @@ function scIndPresupuestos(soloEnviados, esSpot){
   }));
   scAbrirIndicador((soloEnviados?'✅ Presupuestos enviados':'💰 Presupuestos solicitados')+(esSpot?' (particulares)':''), items);
 }
-function scIndVisitasTotal(esSpot){
-  const lista=_scReportes().filter(r=>!!r.es_spot===esSpot);
-  const items = lista.map(r=>({
-    nombre: r.cliente,
-    meta: (r.fecha||'—')+' · '+(r.tipo_visita||'—')+' · Técnico: '+(r.tecnico||'—'),
-    reporte: r
-  }));
-  scAbrirIndicador(esSpot?'📋 Visitas particulares':'📋 Visitas totales (contrato)', items);
-}
-
 // ── Generadores de detalle: PARTICULARES ──
 function scIndSpotTotal(){
   const items=_scSpots().map(r=>({
@@ -3056,7 +3075,7 @@ async function cargarScorecard(){
   const loading=document.getElementById('sc-loading');
   const main=document.getElementById('sc-main');
   scInitFiltroFecha();
-  if(_scData){main.style.display='block';loading.style.display='none';return;}
+  if(_scData){main.style.display='block';loading.style.display='none';scInitFiltroCliente();return;}
   loading.style.display='block';main.style.display='none';
   try{
     const [reportesRaw, spotsRaw, seguimiento]=await Promise.all([
@@ -3068,6 +3087,7 @@ async function cargarScorecard(){
     const reportes=_dedupUltimaVersion(reportesRaw);
     const spots=_dedupUltimaVersion(spotsRaw);
     _scData={reportes, spots, seguimiento};
+    scInitFiltroCliente();
     renderScorecard();
     loading.style.display='none';main.style.display='block';
   }catch(e){loading.innerHTML='⚠️ Error: '+e.message;}
@@ -3079,11 +3099,14 @@ function renderScorecard(){
   const seg=_scData.seguimiento;
 
   // ── CARTERA CON CONTRATO ──
-  const totalCli=clientes.length;
-  const atrasados=clientes.filter(c=>c._alerta.estado==='atrasado').length;
-  const proximos=clientes.filter(c=>c._alerta.estado==='proximo').length;
-  const alDia=clientes.filter(c=>c._alerta.estado==='al_dia').length;
-  const sinAlerta=clientes.filter(c=>c._alerta.estado==='sin_alerta').length;
+  // Si hay un cliente seleccionado en el filtro, el Resumen de Cartera se acota a ese cliente
+  // (a diferencia del filtro de fechas, que nunca toca este bloque — ver aclaración del usuario)
+  const clientesCartera=_scFiltroCliente?clientes.filter(c=>c.nombre===_scFiltroCliente):clientes;
+  const totalCli=clientesCartera.length;
+  const atrasados=clientesCartera.filter(c=>c._alerta.estado==='atrasado').length;
+  const proximos=clientesCartera.filter(c=>c._alerta.estado==='proximo').length;
+  const alDia=clientesCartera.filter(c=>c._alerta.estado==='al_dia').length;
+  const sinAlerta=clientesCartera.filter(c=>c._alerta.estado==='sin_alerta').length;
   const conFreq=totalCli-sinAlerta;
   const cumpl=conFreq>0?Math.round(((alDia+proximos)/conFreq)*100):0;
 
@@ -3107,8 +3130,6 @@ function renderScorecard(){
   document.getElementById('sc-problemas').textContent=tPr;
   document.getElementById('sc-presupuestos').textContent=tPresup;
   document.getElementById('sc-presup-enviados').textContent=tPresupEnv;
-  document.getElementById('sc-visitas-total').textContent=contrato.length;
-  document.getElementById('sc-visitas-spot-total').textContent=spots.length;
   // Barra de presupuestos
   const presupPct=tPresup>0?Math.round((tPresupEnv/tPresup)*100):0;
   document.getElementById('sc-presup-bar').style.width=presupPct+'%';
@@ -3135,8 +3156,8 @@ function renderScorecard(){
     }).join('');
   }
 
-  // Lista de clientes — TODOS los clientes con contrato vigente, incluidos los que están al día
-  _scCliSorted=[...clientes].sort((a,b)=>{
+  // Lista de clientes — TODOS los clientes con contrato vigente (o el único seleccionado en el filtro), incluidos los que están al día
+  _scCliSorted=[...clientesCartera].sort((a,b)=>{
     const ord={al_dia:0,proximo:1,atrasado:2,sin_alerta:3};
     return (ord[a._alerta.estado]||3)-(ord[b._alerta.estado]||3);
   });
@@ -3150,8 +3171,9 @@ function renderScorecard(){
   document.getElementById('sc-spot-total').textContent=spots.length;
   const nombresUnicos=[...new Set(spots.map(s=>s.cliente))];
   document.getElementById('sc-spot-unicos').textContent=nombresUnicos.length;
-  const pendientes=seg.filter(s=>(s.estado_seguimiento||'pendiente')==='pendiente').length;
-  const contactados=seg.filter(s=>s.estado_seguimiento==='contactado').length;
+  const segFiltrado=_scFiltroCliente?seg.filter(s=>s.nombre===_scFiltroCliente):seg;
+  const pendientes=segFiltrado.filter(s=>(s.estado_seguimiento||'pendiente')==='pendiente').length;
+  const contactados=segFiltrado.filter(s=>s.estado_seguimiento==='contactado').length;
   document.getElementById('sc-spot-pendientes').textContent=pendientes;
   document.getElementById('sc-spot-contactados').textContent=contactados;
 
