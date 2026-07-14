@@ -1747,8 +1747,9 @@ async function enviar(){
     activarStep('s-enviado');
     borrarBorrador();
     // Reflejar en la agenda del día, si esta visita correspondía a una tarea programada (aislado, no crítico)
-    if(!esSpot && typeof agendaAutoCompletar==='function'){
-      agendaAutoCompletar(clienteSel?.id, clienteSel?.nombre, fecha, tecnico, reporte?.id);
+    // Para clientes Nuevo/Particular no hay cliente_id real, así que se pasa null y se matchea por nombre.
+    if(typeof agendaAutoCompletar==='function'){
+      agendaAutoCompletar(esSpot?null:clienteSel?.id, clienteSel?.nombre, fecha, tecnico, reporte?.id);
     }
     // Si es cliente particular, registrar/actualizar en tabla de seguimiento
     if(esSpot){
@@ -2522,11 +2523,21 @@ async function cargarAgendaWizard(){
     }
     cont.innerHTML=visibles.map(function(t){
       var notas=t.notas?(' · '+String(t.notas).replace(/</g,'&lt;')):'';
-      var idSeguro=(t.cliente_id||'').replace(/'/g,'');
-      return '<div class="agw-item" onclick="agendaWizardSeleccionar(\''+idSeguro+'\')">'
+      var esSpotTarea=!t.cliente_id;
+      var onclickAttr;
+      if(esSpotTarea){
+        var nombreEsc=String(t.cliente_nombre||'').replace(/'/g,"\\'");
+        var dirEsc=String(t.cliente_direccion||'').replace(/'/g,"\\'");
+        onclickAttr='agendaWizardSeleccionarSpot(\''+nombreEsc+'\',\''+dirEsc+'\')';
+      } else {
+        var idSeguro=(t.cliente_id||'').replace(/'/g,'');
+        onclickAttr='agendaWizardSeleccionar(\''+idSeguro+'\')';
+      }
+      var badge=esSpotTarea?'Particular':'Pendiente';
+      return '<div class="agw-item" onclick="'+onclickAttr+'">'
         +'<div><div class="agw-name">'+String(t.cliente_nombre||'—').replace(/</g,'&lt;')+'</div>'
         +'<div class="agw-detail">Toca para preseleccionar'+notas+'</div></div>'
-        +'<span class="eq-badge">Pendiente</span></div>';
+        +'<span class="eq-badge">'+badge+'</span></div>';
     }).join('');
     card.style.display='block';
   }catch(e){
@@ -2542,8 +2553,21 @@ function agendaWizardSeleccionar(clienteId){
   onClienteChange();
 }
 
+// Preselección de una tarea de agenda para un cliente Nuevo/Particular (sin cliente_id real):
+// activa el flujo spot existente y pre-llena nombre y dirección, igual que al restaurar un borrador.
+function agendaWizardSeleccionarSpot(nombre, direccion){
+  var sel=document.getElementById('sel-cliente');
+  if(!sel) return;
+  sel.value='__spot__';
+  onClienteChange();
+  var sn=document.getElementById('spot-nombre'); if(sn) sn.value=nombre||'';
+  var sd=document.getElementById('spot-direccion'); if(sd) sd.value=direccion||'';
+  if(typeof onSpotNombre==='function') onSpotNombre();
+}
+
 // Al enviar una guía, marca como completada la tarea de agenda correspondiente (si existe).
 // Aislado: cualquier error acá no debe afectar el envío de la guía, que ya se realizó.
+// Para clientes Nuevo/Particular, clienteId siempre llega null y el match es solo por nombre.
 async function agendaAutoCompletar(clienteId, clienteNombre, fecha, tecnico, reporteId){
   try{
     var q='estado=eq.pendiente&fecha=eq.'+fecha;
@@ -2796,7 +2820,8 @@ async function enviarPendientes(){
       exitosos.push(p._pendienteId);
 
       // Reflejar en la agenda del día, si esta visita correspondía a una tarea programada (aislado, no crítico)
-      if(!payload.es_spot && typeof agendaAutoCompletar==='function'){
+      // El payload en cola nunca trae cliente_id, así que siempre se matchea por nombre (spot o no).
+      if(typeof agendaAutoCompletar==='function'){
         var repIdOffline = (respData && respData[0]) ? respData[0].id : null;
         agendaAutoCompletar(null, payload.cliente, payload.fecha, payload.tecnico, repIdOffline);
       }

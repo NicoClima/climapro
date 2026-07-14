@@ -690,10 +690,24 @@ if(sessionStorage.getItem('climapro_admin')==='1'){
           <button class="btn-outline" onclick="agendaIrHoy()">Hoy</button>
         </div>
         <div class="a-field"><label>Cliente *</label>
-          <select id="agenda-cliente"><option value="">Selecciona un cliente...</option></select>
+          <select id="agenda-cliente" onchange="agendaClienteCambio()"><option value="">Selecciona un cliente...</option></select>
         </div>
-        <div class="a-field"><label>Técnicos asignados (vacío = todos)</label>
-          <select id="agenda-tecnicos" multiple size="4" style="height:auto;"></select>
+        <div class="a-field" id="agenda-spot-wrap" style="display:none;background:var(--white);border:0.5px solid var(--gray3);border-radius:var(--radius-sm);padding:8px;">
+          <label>Nombre del cliente (particular) *</label>
+          <input type="text" id="agenda-spot-nombre" placeholder="Ej: Edificio Las Rosas" style="margin-bottom:8px;">
+          <label>Dirección</label>
+          <input type="text" id="agenda-spot-direccion" placeholder="Ej: Av. Providencia 1234">
+        </div>
+        <div class="a-field">
+          <label>Técnicos asignados</label>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+            <div style="font-size:11px;color:var(--text3);">Todos marcados por defecto. Desmarca para restringir a técnicos puntuales.</div>
+            <div style="display:flex;gap:6px;flex-shrink:0;">
+              <button type="button" class="btn-outline" style="font-size:10px;padding:3px 8px;" onclick="agendaTecnicosToggle(true)">Todos</button>
+              <button type="button" class="btn-outline" style="font-size:10px;padding:3px 8px;" onclick="agendaTecnicosToggle(false)">Ninguno</button>
+            </div>
+          </div>
+          <div id="agenda-tecnicos-check" style="display:flex;flex-direction:column;gap:6px;max-height:160px;overflow-y:auto;border:0.5px solid var(--gray3);border-radius:var(--radius-sm);padding:8px;background:var(--white);"></div>
         </div>
         <div class="a-field"><label>Notas</label><textarea id="agenda-notas" placeholder="Opcional..."></textarea></div>
         <button class="btn-purple" style="width:100%;" onclick="crearTareaAgenda()">+ Agregar tarea</button>
@@ -1655,13 +1669,33 @@ function agendaPoblarSelects(){
   if(selCli){
     const actual=selCli.value;
     selCli.innerHTML='<option value="">Selecciona un cliente...</option>'+
-      (clientes||[]).map(c=>`<option value="${c.id}">${(c.nombre||'').replace(/"/g,'&quot;')}</option>`).join('');
+      (clientes||[]).map(c=>`<option value="${c.id}">${(c.nombre||'').replace(/"/g,'&quot;')}</option>`).join('')+
+      '<option value="__spot__" style="color:#1D9E75;font-weight:600;">➕ Cliente Nuevo/ Particular</option>';
     if(actual) selCli.value=actual;
+    agendaClienteCambio();
   }
-  const selTec=document.getElementById('agenda-tecnicos');
-  if(selTec){
-    selTec.innerHTML=(_tecnicos||[]).filter(t=>t.activo).map(t=>`<option value="${(t.nombre||'').replace(/"/g,'&quot;')}">${t.nombre}</option>`).join('');
+  const contTec=document.getElementById('agenda-tecnicos-check');
+  if(contTec){
+    const activos=(_tecnicos||[]).filter(t=>t.activo);
+    contTec.innerHTML=activos.length ? activos.map(t=>{
+      const nombreSeguro=(t.nombre||'').replace(/"/g,'&quot;');
+      return `<label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text);cursor:pointer;">
+        <input type="checkbox" class="agenda-tec-cb" value="${nombreSeguro}" checked style="width:16px;height:16px;accent-color:var(--purple-dark);">
+        ${t.nombre}
+      </label>`;
+    }).join('') : '<div style="font-size:12px;color:var(--text3);">Sin técnicos activos.</div>';
   }
+}
+
+function agendaTecnicosToggle(marcar){
+  document.querySelectorAll('.agenda-tec-cb').forEach(cb=>cb.checked=marcar);
+}
+
+function agendaClienteCambio(){
+  const sel=document.getElementById('agenda-cliente');
+  const wrap=document.getElementById('agenda-spot-wrap');
+  if(!sel||!wrap) return;
+  wrap.style.display = sel.value==='__spot__' ? 'block' : 'none';
 }
 
 async function cargarAgenda(){
@@ -1707,13 +1741,15 @@ function renderAgenda(){
   if(!_agenda.length){ cont.innerHTML='<div class="sc-more-box">Sin tareas para este día.</div>'; return; }
   cont.innerHTML=_agenda.map(t=>{
     const tecs=(t.tecnicos_asignados && t.tecnicos_asignados.length) ? t.tecnicos_asignados.join(', ') : 'Todos';
+    const dirInfo=t.cliente_direccion?(' · '+String(t.cliente_direccion).replace(/</g,'&lt;')):'';
     const notas=t.notas?(' · '+String(t.notas).replace(/</g,'&lt;')):'';
     const completo=t.tecnico_completo?(' · Completó: '+String(t.tecnico_completo).replace(/</g,'&lt;')):'';
+    const spotTag=!t.cliente_id?'<span class="sc-pill sc-pill-blue" style="margin-right:5px;">Particular</span>':'';
     const cancelBtn=t.estado==='pendiente' ? `<button class="btn-outline" onclick="cancelarTareaAgenda('${t.id}')">Cancelar</button>` : '';
     return `<div class="sc-client-row" style="cursor:default;align-items:flex-start;flex-wrap:wrap;">
       <div style="flex:1;min-width:150px;">
-        <div class="sc-name">${(t.cliente_nombre||'—').replace(/</g,'&lt;')}</div>
-        <div class="sc-info">Técnicos: ${tecs}${notas}${completo}</div>
+        <div class="sc-name">${spotTag}${(t.cliente_nombre||'—').replace(/</g,'&lt;')}</div>
+        <div class="sc-info">Técnicos: ${tecs}${dirInfo}${notas}${completo}</div>
       </div>
       ${_agendaEstadoPill(t)}
       ${cancelBtn}
@@ -1725,22 +1761,42 @@ async function crearTareaAgenda(){
   const selCli=document.getElementById('agenda-cliente');
   const clienteId=selCli?selCli.value:'';
   if(!clienteId){ alert('Selecciona un cliente.'); return; }
-  const cliente=clientes.find(c=>c.id===clienteId);
-  const selTec=document.getElementById('agenda-tecnicos');
-  const tecSel=selTec?Array.from(selTec.selectedOptions).map(o=>o.value):[];
+
+  let clienteIdFinal=null, clienteNombreFinal='', clienteDireccionFinal=null;
+  if(clienteId==='__spot__'){
+    const nombreSpot=(document.getElementById('agenda-spot-nombre')?.value||'').trim();
+    if(!nombreSpot){ alert('Ingresa el nombre del cliente particular.'); return; }
+    clienteNombreFinal=nombreSpot;
+    clienteDireccionFinal=(document.getElementById('agenda-spot-direccion')?.value||'').trim()||null;
+  } else {
+    const cliente=clientes.find(c=>c.id===clienteId);
+    clienteIdFinal=clienteId;
+    clienteNombreFinal=cliente?cliente.nombre:'';
+  }
+
+  const checks=Array.from(document.querySelectorAll('.agenda-tec-cb'));
+  const marcados=checks.filter(cb=>cb.checked).map(cb=>cb.value);
+  if(checks.length && !marcados.length){ alert('Selecciona al menos un técnico (o deja todos marcados para asignar a todos).'); return; }
+  // Si quedan todos marcados, se guarda null: la tarea queda visible para TODOS los técnicos,
+  // incluidos los que se agreguen a futuro (no queda "congelada" a la lista de hoy).
+  const todosMarcados = checks.length>0 && marcados.length===checks.length;
   const notas=(document.getElementById('agenda-notas')?.value||'').trim()||null;
   try{
     const creado=await sbPost('tareas_dia',{
       fecha:_agendaFecha,
-      cliente_id:clienteId,
-      cliente_nombre:cliente?cliente.nombre:'',
-      tecnicos_asignados: tecSel.length?tecSel:null,
+      cliente_id:clienteIdFinal,
+      cliente_nombre:clienteNombreFinal,
+      cliente_direccion:clienteDireccionFinal,
+      tecnicos_asignados: todosMarcados ? null : marcados,
       notas
     });
     _agenda.push(creado[0]);
     document.getElementById('agenda-notas').value='';
-    if(selTec) Array.from(selTec.options).forEach(o=>o.selected=false);
+    agendaTecnicosToggle(true); // reset a "todos marcados" por defecto
     selCli.value='';
+    const spotNombreEl=document.getElementById('agenda-spot-nombre'); if(spotNombreEl) spotNombreEl.value='';
+    const spotDirEl=document.getElementById('agenda-spot-direccion'); if(spotDirEl) spotDirEl.value='';
+    agendaClienteCambio();
     renderAgenda();
   }catch(e){ alert('Error al agregar tarea: '+e.message); }
 }
