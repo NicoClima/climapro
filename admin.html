@@ -2425,7 +2425,24 @@ function construirHTMLGuia(r){
 </div>
 <div class="gs-head-border2"></div>
 
-<!-- SCORECARD RESUMEN (arriba, primero) -->
+<!-- DATOS VISITA -->
+<div class="sec-title"><div class="sec-bar"></div><div class="sec-label">Información de la Visita</div></div>
+<div class="sec-line"></div>
+<div class="data-box">
+  <div class="data-col">
+    <div class="data-row"><span class="data-key">Cliente:</span><span class="data-val">${r.cliente||'—'}</span></div>
+    ${(cli.direccion||r.spot_direccion)?`<div class="data-row"><span class="data-key">Dirección:</span><span class="data-val">${cli.direccion||r.spot_direccion}</span></div>`:''}
+    ${(cli.contacto||r.spot_contacto)?`<div class="data-row"><span class="data-key">Contacto:</span><span class="data-val">${cli.contacto||r.spot_contacto}</span></div>`:''}
+    <div class="data-row"><span class="data-key">Recepciona:</span><span class="data-val" style="color:${C.oscuro};">${r.recepcionado_por||cli.contacto||r.spot_contacto||'—'}</span></div>
+  </div>
+  <div class="data-col">
+    <div class="data-row"><span class="data-key">Fecha:</span><span class="data-val">${r.fecha||'—'}</span></div>
+    <div class="data-row"><span class="data-key">Tipo:</span><span class="data-val">${r.tipo_visita||'—'}</span></div>
+    <div class="data-row"><span class="data-key">Técnico:</span><span class="data-val">${r.tecnico||'—'}</span></div>
+  </div>
+</div>
+
+<!-- SCORECARD RESUMEN (segundo bloque, después de Información de la Visita) -->
 ${(()=>{
   const totalItems=totalOk+totalAl+totalPr;
   const hayProblemas=totalPr>0;
@@ -2461,23 +2478,6 @@ ${(()=>{
   ${eqMiniHTML}
   `;
 })()}
-
-<!-- DATOS VISITA -->
-<div class="sec-title"><div class="sec-bar"></div><div class="sec-label">Información de la Visita</div></div>
-<div class="sec-line"></div>
-<div class="data-box">
-  <div class="data-col">
-    <div class="data-row"><span class="data-key">Cliente:</span><span class="data-val">${r.cliente||'—'}</span></div>
-    ${(cli.direccion||r.spot_direccion)?`<div class="data-row"><span class="data-key">Dirección:</span><span class="data-val">${cli.direccion||r.spot_direccion}</span></div>`:''}
-    ${(cli.contacto||r.spot_contacto)?`<div class="data-row"><span class="data-key">Contacto:</span><span class="data-val">${cli.contacto||r.spot_contacto}</span></div>`:''}
-    <div class="data-row"><span class="data-key">Recepciona:</span><span class="data-val" style="color:${C.oscuro};">${r.recepcionado_por||cli.contacto||r.spot_contacto||'—'}</span></div>
-  </div>
-  <div class="data-col">
-    <div class="data-row"><span class="data-key">Fecha:</span><span class="data-val">${r.fecha||'—'}</span></div>
-    <div class="data-row"><span class="data-key">Tipo:</span><span class="data-val">${r.tipo_visita||'—'}</span></div>
-    <div class="data-row"><span class="data-key">Técnico:</span><span class="data-val">${r.tecnico||'—'}</span></div>
-  </div>
-</div>
 
 <!-- OBSERVACIONES -->
 ${r.obs_general?`<div class="sec-title"><div class="sec-bar"></div><div class="sec-label">Observaciones y Recomendaciones</div></div>
