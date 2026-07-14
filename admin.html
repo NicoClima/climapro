@@ -365,6 +365,7 @@ if(sessionStorage.getItem('climapro_admin')==='1'){
   <div class="admin-body">
     <div class="admin-tabs">
       <button class="admin-tab active" onclick="adminTab('scorecard')">📊 Scorecard</button>
+      <button class="admin-tab" onclick="adminTab('agenda')">📅 Agenda</button>
       <button class="admin-tab" onclick="adminTab('clientes')">👥 Clientes</button>
       <button class="admin-tab" onclick="adminTab('historial')">📋 Historial</button>
       <button class="admin-tab" onclick="adminTab('nuevo-cliente')">➕ Nuevo</button>
@@ -672,6 +673,34 @@ if(sessionStorage.getItem('climapro_admin')==='1'){
           <button class="sc-back" onclick="scCerrarDrilldown()">← Volver a la lista</button>
           <div class="sc-detail-box" id="sc-detail-content"></div>
         </div>
+      </div>
+    </div>
+
+    <!-- TAB: AGENDA -->
+    <div class="admin-content" id="tab-agenda">
+      <div class="a-card">
+        <div class="a-card-title">📅 Programar visita</div>
+        <div style="font-size:12px;color:var(--text3);margin-bottom:10px;">
+          Si no seleccionas técnicos, la tarea queda visible para todos (comportamiento por defecto).
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
+          <button class="btn-outline" onclick="agendaCambiarFecha(-1)">◀</button>
+          <input type="date" id="agenda-fecha" style="flex:1;padding:8px 10px;border-radius:var(--radius-sm);border:0.5px solid var(--gray3);font-family:var(--font);font-size:13px;background:var(--white);color:var(--text);" onchange="agendaFechaCambio()">
+          <button class="btn-outline" onclick="agendaCambiarFecha(1)">▶</button>
+          <button class="btn-outline" onclick="agendaIrHoy()">Hoy</button>
+        </div>
+        <div class="a-field"><label>Cliente *</label>
+          <select id="agenda-cliente"><option value="">Selecciona un cliente...</option></select>
+        </div>
+        <div class="a-field"><label>Técnicos asignados (vacío = todos)</label>
+          <select id="agenda-tecnicos" multiple size="4" style="height:auto;"></select>
+        </div>
+        <div class="a-field"><label>Notas</label><textarea id="agenda-notas" placeholder="Opcional..."></textarea></div>
+        <button class="btn-purple" style="width:100%;" onclick="crearTareaAgenda()">+ Agregar tarea</button>
+      </div>
+      <div class="a-card">
+        <div class="a-card-title">Tareas del día</div>
+        <div id="agenda-lista"></div>
       </div>
     </div>
 
@@ -1609,12 +1638,121 @@ async function guardarChecklist(){
 }
 
 function adminTab(tab){
-  const tabs=['scorecard','clientes','historial','nuevo-cliente','tecnicos'];
+  const tabs=['scorecard','agenda','clientes','historial','nuevo-cliente','tecnicos'];
   document.querySelectorAll('.admin-tab').forEach((t,i)=>t.classList.toggle('active',tabs[i]===tab));
   document.querySelectorAll('.admin-content').forEach(c=>c.classList.remove('active'));
   document.getElementById('tab-'+tab).classList.add('active');
   if(tab==='scorecard') cargarScorecard();
+  if(tab==='agenda') cargarAgenda();
   if(tab==='tecnicos') cargarTecnicos();
+}
+
+// ── AGENDA DE TAREAS DIARIAS ──────────────────────────────
+let _agenda=[], _agendaFecha=new Date().toISOString().split('T')[0];
+
+function agendaPoblarSelects(){
+  const selCli=document.getElementById('agenda-cliente');
+  if(selCli){
+    const actual=selCli.value;
+    selCli.innerHTML='<option value="">Selecciona un cliente...</option>'+
+      (clientes||[]).map(c=>`<option value="${c.id}">${(c.nombre||'').replace(/"/g,'&quot;')}</option>`).join('');
+    if(actual) selCli.value=actual;
+  }
+  const selTec=document.getElementById('agenda-tecnicos');
+  if(selTec){
+    selTec.innerHTML=(_tecnicos||[]).filter(t=>t.activo).map(t=>`<option value="${(t.nombre||'').replace(/"/g,'&quot;')}">${t.nombre}</option>`).join('');
+  }
+}
+
+async function cargarAgenda(){
+  const fInput=document.getElementById('agenda-fecha');
+  if(fInput) fInput.value=_agendaFecha;
+  const cont=document.getElementById('agenda-lista');
+  if(cont) cont.innerHTML='<div class="loading-sm">⏳ Cargando agenda...</div>';
+  try{
+    if(!clientes.length) await cargarClientes();
+    if(!_tecnicos.length) await cargarTecnicos();
+    agendaPoblarSelects();
+    _agenda=await sbGet('tareas_dia',`fecha=eq.${_agendaFecha}&order=created_at.asc`);
+    renderAgenda();
+  }catch(e){ if(cont) cont.innerHTML='⚠️ Error: '+e.message; }
+}
+
+function agendaCambiarFecha(delta){
+  const d=new Date(_agendaFecha+'T00:00:00');
+  d.setDate(d.getDate()+delta);
+  _agendaFecha=d.toISOString().split('T')[0];
+  cargarAgenda();
+}
+
+function agendaIrHoy(){
+  _agendaFecha=new Date().toISOString().split('T')[0];
+  cargarAgenda();
+}
+
+function agendaFechaCambio(){
+  const f=document.getElementById('agenda-fecha');
+  if(f && f.value){ _agendaFecha=f.value; cargarAgenda(); }
+}
+
+function _agendaEstadoPill(t){
+  if(t.estado==='completada') return '<span class="sc-pill sc-pill-ok">Completada</span>';
+  if(t.estado==='cancelada') return '<span class="sc-pill sc-pill-gray">Cancelada</span>';
+  return '<span class="sc-pill sc-pill-warn">Pendiente</span>';
+}
+
+function renderAgenda(){
+  const cont=document.getElementById('agenda-lista');
+  if(!cont) return;
+  if(!_agenda.length){ cont.innerHTML='<div class="sc-more-box">Sin tareas para este día.</div>'; return; }
+  cont.innerHTML=_agenda.map(t=>{
+    const tecs=(t.tecnicos_asignados && t.tecnicos_asignados.length) ? t.tecnicos_asignados.join(', ') : 'Todos';
+    const notas=t.notas?(' · '+String(t.notas).replace(/</g,'&lt;')):'';
+    const completo=t.tecnico_completo?(' · Completó: '+String(t.tecnico_completo).replace(/</g,'&lt;')):'';
+    const cancelBtn=t.estado==='pendiente' ? `<button class="btn-outline" onclick="cancelarTareaAgenda('${t.id}')">Cancelar</button>` : '';
+    return `<div class="sc-client-row" style="cursor:default;align-items:flex-start;flex-wrap:wrap;">
+      <div style="flex:1;min-width:150px;">
+        <div class="sc-name">${(t.cliente_nombre||'—').replace(/</g,'&lt;')}</div>
+        <div class="sc-info">Técnicos: ${tecs}${notas}${completo}</div>
+      </div>
+      ${_agendaEstadoPill(t)}
+      ${cancelBtn}
+    </div>`;
+  }).join('');
+}
+
+async function crearTareaAgenda(){
+  const selCli=document.getElementById('agenda-cliente');
+  const clienteId=selCli?selCli.value:'';
+  if(!clienteId){ alert('Selecciona un cliente.'); return; }
+  const cliente=clientes.find(c=>c.id===clienteId);
+  const selTec=document.getElementById('agenda-tecnicos');
+  const tecSel=selTec?Array.from(selTec.selectedOptions).map(o=>o.value):[];
+  const notas=(document.getElementById('agenda-notas')?.value||'').trim()||null;
+  try{
+    const creado=await sbPost('tareas_dia',{
+      fecha:_agendaFecha,
+      cliente_id:clienteId,
+      cliente_nombre:cliente?cliente.nombre:'',
+      tecnicos_asignados: tecSel.length?tecSel:null,
+      notas
+    });
+    _agenda.push(creado[0]);
+    document.getElementById('agenda-notas').value='';
+    if(selTec) Array.from(selTec.options).forEach(o=>o.selected=false);
+    selCli.value='';
+    renderAgenda();
+  }catch(e){ alert('Error al agregar tarea: '+e.message); }
+}
+
+async function cancelarTareaAgenda(id){
+  if(!confirm('¿Cancelar esta tarea? (no se elimina, solo cambia de estado)')) return;
+  try{
+    await sbPatch('tareas_dia',id,{estado:'cancelada'});
+    const t=_agenda.find(x=>x.id===id);
+    if(t) t.estado='cancelada';
+    renderAgenda();
+  }catch(e){ alert('Error al cancelar: '+e.message); }
 }
 
 // ── GESTIÓN DE TÉCNICOS ───────────────────────────────────

@@ -77,6 +77,11 @@ body{font-family:var(--font);background:#e0e0dc;display:flex;align-items:flex-st
 .eq-detail{font-size:11px;color:var(--text3);margin-top:1px;}
 .eq-desc{font-size:11px;color:var(--teal-dark);margin-top:2px;font-style:italic;}
 .eq-badge{font-size:10px;padding:2px 8px;border-radius:10px;background:var(--teal-light);color:var(--teal-dark);font-weight:500;margin-left:auto;flex-shrink:0;}
+.agw-item{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:0.5px solid var(--gray2);cursor:pointer;}
+.agw-item:last-child{border-bottom:none;}
+.agw-item:active{opacity:0.7;}
+.agw-name{font-size:13px;font-weight:600;flex:1;}
+.agw-detail{font-size:11px;color:var(--text3);margin-top:1px;}
 .sec-header{display:flex;align-items:center;gap:8px;padding:8px 0 10px;border-bottom:0.5px solid var(--gray2);margin-bottom:10px;}
 .sec-icon-big{width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0;}
 .sec-header-title{font-size:14px;font-weight:600;flex:1;}
@@ -380,6 +385,10 @@ body{padding:12px;justify-content:center;background:#1D9E75;}
     <div class="step-body">
       <div class="dots"><div class="dot active"></div><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>
       <div style="height:8px;"></div>
+      <div class="card" id="agenda-wizard-card" style="display:none;"><div class="card-body">
+        <div class="slabel">📋 Tareas de hoy</div>
+        <div id="agenda-wizard-lista"></div>
+      </div></div>
       <div class="card"><div class="card-body">
         <div class="slabel">Datos de la visita</div>
         <div class="field"><label>Cliente *</label>
@@ -678,6 +687,7 @@ function onTecnicoChangeS0(){
 async function confirmarTecnico(){
   var tecnico = getTecnico();
   if(!tecnico) return;
+  if(typeof cargarAgendaWizard==='function') cargarAgendaWizard(); // aislado, no bloquea el flujo
   var b = leerBorrador();
   if(b && (Date.now()-b.timestamp <= 12*60*60*1000)){
     verificarBorrador(); // construye el texto y muestra el modal, ya scoped a este técnico
@@ -1736,6 +1746,10 @@ async function enviar(){
     document.getElementById('enviado-id').textContent='Guia N° '+(reporte?.numero_guia||numGuia);
     activarStep('s-enviado');
     borrarBorrador();
+    // Reflejar en la agenda del día, si esta visita correspondía a una tarea programada (aislado, no crítico)
+    if(!esSpot && typeof agendaAutoCompletar==='function'){
+      agendaAutoCompletar(clienteSel?.id, clienteSel?.nombre, fecha, tecnico, reporte?.id);
+    }
     // Si es cliente particular, registrar/actualizar en tabla de seguimiento
     if(esSpot){
       registrarSeguimientoParticular({
@@ -1762,7 +1776,7 @@ function reiniciar(){
   var sw=document.getElementById('spot-wrap');if(sw)sw.style.display='none';
   var sn=document.getElementById('spot-nombre');if(sn)sn.value='';
   var sd=document.getElementById('spot-direccion');if(sd)sd.value='';
-  var sc=document.getElementById('spot-contacto');if(sc)sc.value='';document.getElementById('btn-iniciar').disabled=true;document.getElementById('nota-registro').value='';document.getElementById('recepciona-nombre').value='';document.getElementById('tecnico-otro-wrap').style.display='none';document.getElementById('tecnico-otro').value='';var _fd=document.getElementById('visita-fecha');if(_fd)_fd.value=new Date().toISOString().split('T')[0];limpiarFirma();activarStep('s1');}
+  var sc=document.getElementById('spot-contacto');if(sc)sc.value='';document.getElementById('btn-iniciar').disabled=true;document.getElementById('nota-registro').value='';document.getElementById('recepciona-nombre').value='';document.getElementById('tecnico-otro-wrap').style.display='none';document.getElementById('tecnico-otro').value='';var _fd=document.getElementById('visita-fecha');if(_fd)_fd.value=new Date().toISOString().split('T')[0];limpiarFirma();if(typeof cargarAgendaWizard==='function')cargarAgendaWizard();activarStep('s1');}
 function togglePresup(){document.getElementById('presup-wrap').style.display=document.getElementById('req-presup').checked?'block':'none';}
 
 function initFirma(){
@@ -2486,6 +2500,60 @@ async function cargarTecnicosWizard(){
   // Si no hay red ni caché, se mantiene la lista fija incluida en el HTML como último respaldo
 }
 
+// ── Agenda de tareas diarias (bloque "Tareas de hoy" post Paso 0) ──
+// Aislado con try/catch propio: si falla, no debe bloquear el resto del wizard.
+async function cargarAgendaWizard(){
+  var card=document.getElementById('agenda-wizard-card');
+  var cont=document.getElementById('agenda-wizard-lista');
+  if(!card||!cont) return;
+  try{
+    if(!navigator.onLine){ card.style.display='none'; return; }
+    var tecnico=getTecnico();
+    var hoy=new Date().toISOString().split('T')[0];
+    var tareas=await sbGet('tareas_dia','fecha=eq.'+hoy+'&estado=eq.pendiente&order=cliente_nombre.asc');
+    var visibles=(tareas||[]).filter(function(t){
+      var asignados=t.tecnicos_asignados;
+      return !asignados || !asignados.length || asignados.indexOf(tecnico)!==-1;
+    });
+    if(!visibles.length){ card.style.display='none'; cont.innerHTML=''; return; }
+    cont.innerHTML=visibles.map(function(t){
+      var notas=t.notas?(' · '+String(t.notas).replace(/</g,'&lt;')):'';
+      var idSeguro=(t.cliente_id||'').replace(/'/g,'');
+      return '<div class="agw-item" onclick="agendaWizardSeleccionar(\''+idSeguro+'\')">'
+        +'<div><div class="agw-name">'+String(t.cliente_nombre||'—').replace(/</g,'&lt;')+'</div>'
+        +'<div class="agw-detail">Toca para preseleccionar'+notas+'</div></div>'
+        +'<span class="eq-badge">Pendiente</span></div>';
+    }).join('');
+    card.style.display='block';
+  }catch(e){
+    console.warn('No se pudo cargar la agenda del día (no crítico):', e);
+    if(card) card.style.display='none';
+  }
+}
+
+function agendaWizardSeleccionar(clienteId){
+  var sel=document.getElementById('sel-cliente');
+  if(!sel||!clienteId) return;
+  sel.value=clienteId;
+  onClienteChange();
+}
+
+// Al enviar una guía, marca como completada la tarea de agenda correspondiente (si existe).
+// Aislado: cualquier error acá no debe afectar el envío de la guía, que ya se realizó.
+async function agendaAutoCompletar(clienteId, clienteNombre, fecha, tecnico, reporteId){
+  try{
+    var q='estado=eq.pendiente&fecha=eq.'+fecha;
+    if(clienteId) q+='&cliente_id=eq.'+clienteId;
+    else q+='&cliente_nombre=eq.'+encodeURIComponent(clienteNombre||'');
+    var tareas=await sbGet('tareas_dia', q);
+    if(tareas && tareas.length){
+      await sbPatch('tareas_dia', tareas[0].id, {estado:'completada', tecnico_completo:tecnico, reporte_id:reporteId||null});
+    }
+  }catch(e){
+    console.warn('No se pudo actualizar la agenda tras enviar la guía (no crítico):', e);
+  }
+}
+
 // ── Sincronizar datos desde Supabase ─────────────────────
 async function sincronizarDatos(){
   if(!navigator.onLine) return false;
@@ -2720,8 +2788,14 @@ async function enviarPendientes(){
       var payload = Object.assign({}, p, {numero_guia: numGuiaReal});
       delete payload._pendienteId;
       delete payload._fechaGuardado;
-      await sbPost('reportes', payload);
+      var respData = await sbPost('reportes', payload);
       exitosos.push(p._pendienteId);
+
+      // Reflejar en la agenda del día, si esta visita correspondía a una tarea programada (aislado, no crítico)
+      if(!payload.es_spot && typeof agendaAutoCompletar==='function'){
+        var repIdOffline = (respData && respData[0]) ? respData[0].id : null;
+        agendaAutoCompletar(null, payload.cliente, payload.fecha, payload.tecnico, repIdOffline);
+      }
 
       // Si es cliente particular, registrar/actualizar seguimiento
       if(payload.es_spot){
