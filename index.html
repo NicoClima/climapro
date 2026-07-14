@@ -2515,7 +2515,11 @@ async function cargarAgendaWizard(){
       var asignados=t.tecnicos_asignados;
       return !asignados || !asignados.length || asignados.indexOf(tecnico)!==-1;
     });
-    if(!visibles.length){ card.style.display='none'; cont.innerHTML=''; return; }
+    if(!visibles.length){
+      cont.innerHTML='<div style="font-size:12px;color:var(--text3);padding:6px 0;">Sin tareas preasignadas</div>';
+      card.style.display='block';
+      return;
+    }
     cont.innerHTML=visibles.map(function(t){
       var notas=t.notas?(' · '+String(t.notas).replace(/</g,'&lt;')):'';
       var idSeguro=(t.cliente_id||'').replace(/'/g,'');
