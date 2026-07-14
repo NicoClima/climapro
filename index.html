@@ -2522,10 +2522,16 @@ async function cargarAgendaWizard(){
       return;
     }
     cont.innerHTML=visibles.map(function(t){
+      var esSpotTarea=!t.cliente_id;
+      var direccion=esSpotTarea
+        ? (t.cliente_direccion||'')
+        : ((clientes||[]).find(function(c){return c.id===t.cliente_id;})||{}).direccion||'';
+      var dirHtml=direccion
+        ? '<div class="agw-detail">📍 '+String(direccion).replace(/</g,'&lt;')+'</div>'
+        : '';
       var notaHtml=t.notas
         ? '<div style="font-size:11px;color:var(--amber-dark);background:var(--amber-light);border-radius:6px;padding:3px 7px;margin-top:4px;">📝 '+String(t.notas).replace(/</g,'&lt;')+'</div>'
-        : '<div class="agw-detail">Toca para preseleccionar</div>';
-      var esSpotTarea=!t.cliente_id;
+        : (direccion ? '' : '<div class="agw-detail">Toca para preseleccionar</div>');
       var onclickAttr;
       if(esSpotTarea){
         var nombreEsc=String(t.cliente_nombre||'').replace(/'/g,"\\'");
@@ -2538,7 +2544,7 @@ async function cargarAgendaWizard(){
       var badge=esSpotTarea?'Particular':'Pendiente';
       return '<div class="agw-item" onclick="'+onclickAttr+'">'
         +'<div style="flex:1;min-width:0;"><div class="agw-name">'+String(t.cliente_nombre||'—').replace(/</g,'&lt;')+'</div>'
-        +notaHtml+'</div>'
+        +dirHtml+notaHtml+'</div>'
         +'<span class="eq-badge">'+badge+'</span></div>';
     }).join('');
     card.style.display='block';
