@@ -77,7 +77,7 @@ body{font-family:var(--font);background:#e0e0dc;display:flex;align-items:flex-st
 .eq-detail{font-size:11px;color:var(--text3);margin-top:1px;}
 .eq-desc{font-size:11px;color:var(--teal-dark);margin-top:2px;font-style:italic;}
 .eq-badge{font-size:10px;padding:2px 8px;border-radius:10px;background:var(--teal-light);color:var(--teal-dark);font-weight:500;margin-left:auto;flex-shrink:0;}
-.agw-item{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:0.5px solid var(--gray2);cursor:pointer;}
+.agw-item{display:flex;align-items:flex-start;gap:10px;padding:10px 0;border-bottom:0.5px solid var(--gray2);cursor:pointer;}
 .agw-item:last-child{border-bottom:none;}
 .agw-item:active{opacity:0.7;}
 .agw-name{font-size:13px;font-weight:600;flex:1;}
@@ -2522,7 +2522,9 @@ async function cargarAgendaWizard(){
       return;
     }
     cont.innerHTML=visibles.map(function(t){
-      var notas=t.notas?(' · '+String(t.notas).replace(/</g,'&lt;')):'';
+      var notaHtml=t.notas
+        ? '<div style="font-size:11px;color:var(--amber-dark);background:var(--amber-light);border-radius:6px;padding:3px 7px;margin-top:4px;">📝 '+String(t.notas).replace(/</g,'&lt;')+'</div>'
+        : '<div class="agw-detail">Toca para preseleccionar</div>';
       var esSpotTarea=!t.cliente_id;
       var onclickAttr;
       if(esSpotTarea){
@@ -2535,8 +2537,8 @@ async function cargarAgendaWizard(){
       }
       var badge=esSpotTarea?'Particular':'Pendiente';
       return '<div class="agw-item" onclick="'+onclickAttr+'">'
-        +'<div><div class="agw-name">'+String(t.cliente_nombre||'—').replace(/</g,'&lt;')+'</div>'
-        +'<div class="agw-detail">Toca para preseleccionar'+notas+'</div></div>'
+        +'<div style="flex:1;min-width:0;"><div class="agw-name">'+String(t.cliente_nombre||'—').replace(/</g,'&lt;')+'</div>'
+        +notaHtml+'</div>'
         +'<span class="eq-badge">'+badge+'</span></div>';
     }).join('');
     card.style.display='block';
