@@ -2499,30 +2499,40 @@ function construirHTMLGuia(r){
     const nPr=(s.items||[]).filter(i=>i.estado==='problema').length;
     const total=nOk+nAl+nPr;
 
-    // Listado de TODOS los ítems del checklist, cada uno con su marca de estado
-    let itemsHTML='';
-    (s.items||[]).forEach(i=>{
+    // Listado de TODOS los ítems del checklist, en pares de 2 columnas usando
+    // una <table> (no CSS grid): algunos motores de impresión reales (a
+    // diferencia de WeasyPrint) ignoran page-break-inside:avoid dentro de un
+    // contenedor grid y cortan la tarjeta de equipo a la mitad entre páginas.
+    // Las tablas HTML sí se paginan de forma confiable en todos los motores.
+    const itemCeldas=(s.items||[]).map(i=>{
       const esOk=i.estado==='ok';
       const esAl=i.estado==='alerta';
       const bg=esOk?C.greenL:esAl?C.amberL:C.redL;
       const fg=esOk?C.greenD:esAl?C.amberD:C.redD;
       const bdr=esOk?C.greenD:esAl?'#EF9F27':C.redD;
       const lbl=esOk?'OK':esAl?'ALERTA':'PROBLEMA';
-      itemsHTML+=`<div style="border-radius:3px;border:0.5px solid ${bdr};border-left:3px solid ${bdr};background:${bg};padding:2.5px 7px;">
+      return `<div style="border-radius:3px;border:0.5px solid ${bdr};border-left:3px solid ${bdr};background:${bg};padding:2.5px 7px;">
         <span style="background:${bg};color:${fg};border:1px solid ${bdr};border-radius:3px;font-size:7px;font-weight:700;padding:0.5px 4px;margin-right:5px;">${lbl}</span>
         <span style="font-size:8.5px;font-weight:600;color:#1a1a18;">${i.item}</span>
         ${i.obs?`<div style="font-size:8px;color:${fg};font-style:italic;margin-top:1px;margin-left:38px;">${i.obs}</div>`:''}
       </div>`;
     });
+    let itemsHTML='';
+    for(let idx=0;idx<itemCeldas.length;idx+=2){
+      itemsHTML+=`<tr style="page-break-inside:avoid;break-inside:avoid;">
+        <td style="width:50%;padding:0 3px 3px 0;vertical-align:top;">${itemCeldas[idx]}</td>
+        <td style="width:50%;padding:0 0 3px 3px;vertical-align:top;">${itemCeldas[idx+1]||''}</td>
+      </tr>`;
+    }
 
     return `<div class="equipo-card" style="margin-bottom:6px;">
       <div style="background:${C.oscuro};color:#fff;font-size:9px;font-weight:700;padding:4px 8px;border-radius:4px 4px 0 0;display:flex;justify-content:space-between;align-items:center;">
         <span>${s.label}${s.tipo==='otro'&&s.descripcion?' — '+s.descripcion:(s.ubicacion?' · '+s.ubicacion:'')}${s.cantidad>1?' · '+s.cantidad+' unidades':''}</span>
         <span style="font-size:7.5px;font-weight:500;opacity:0.85;">${total} chequeos${nAl>0?' · '+nAl+' alerta'+(nAl>1?'s':''):''}${nPr>0?' · '+nPr+' problema'+(nPr>1?'s':''):''}</span>
       </div>
-      <div style="background:${C.gris1};padding:3px;border-radius:0 0 4px 4px;display:grid;grid-template-columns:1fr 1fr;gap:3px 6px;align-items:start;">
-        ${itemsHTML}
-      </div>
+      <table style="width:100%;border-collapse:collapse;background:${C.gris1};border-radius:0 0 4px 4px;padding:3px;">
+        <tbody>${itemsHTML}</tbody>
+      </table>
     </div>`;
   }
 
@@ -2855,7 +2865,11 @@ ${(()=>{
     }
     const encabezado=`<div class="foto-eq-head">${s.label}${s.tipo==='otro'&&s.descripcion?' — '+s.descripcion:(s.ubicacion?' · '+s.ubicacion:'')}</div>`;
     filas.forEach((fila,idx)=>{
-      const filaHTML=`<div class="foto-grid">${fila.join('')}</div>`;
+      // Tabla en vez de CSS grid: mismo motivo que en seccionHTML — la fila
+      // completa de fotos debe viajar como bloque atómico al paginar.
+      const anchoCelda=(100/FOTOS_POR_FILA).toFixed(4)+'%';
+      const tdsHTML=fila.map(it=>`<td style="width:${anchoCelda};padding:0 6px 8px 0;vertical-align:top;">${it}</td>`).join('');
+      const filaHTML=`<table style="width:100%;border-collapse:collapse;table-layout:fixed;"><tbody><tr style="page-break-inside:avoid;break-inside:avoid;">${tdsHTML}</tr></tbody></table>`;
       if(idx===0){
         // Encabezado + primera fila viajan juntos (evita encabezado huérfano)
         chunks.push(`<div style="page-break-inside:avoid;break-inside:avoid;">${encabezado}${filaHTML}</div>`);
