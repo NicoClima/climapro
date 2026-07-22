@@ -2508,7 +2508,7 @@ function construirHTMLGuia(r){
       const fg=esOk?C.greenD:esAl?C.amberD:C.redD;
       const bdr=esOk?C.greenD:esAl?'#EF9F27':C.redD;
       const lbl=esOk?'OK':esAl?'ALERTA':'PROBLEMA';
-      itemsHTML+=`<div style="margin-top:2px;border-radius:3px;border:0.5px solid ${bdr};border-left:3px solid ${bdr};background:${bg};padding:2.5px 7px;">
+      itemsHTML+=`<div style="border-radius:3px;border:0.5px solid ${bdr};border-left:3px solid ${bdr};background:${bg};padding:2.5px 7px;">
         <span style="background:${bg};color:${fg};border:1px solid ${bdr};border-radius:3px;font-size:7px;font-weight:700;padding:0.5px 4px;margin-right:5px;">${lbl}</span>
         <span style="font-size:8.5px;font-weight:600;color:#1a1a18;">${i.item}</span>
         ${i.obs?`<div style="font-size:8px;color:${fg};font-style:italic;margin-top:1px;margin-left:38px;">${i.obs}</div>`:''}
@@ -2520,13 +2520,15 @@ function construirHTMLGuia(r){
         <span>${s.label}${s.ubicacion?' · '+s.ubicacion:''}${s.cantidad>1?' · '+s.cantidad+' unidades':''}</span>
         <span style="font-size:7.5px;font-weight:500;opacity:0.85;">${total} chequeos${nAl>0?' · '+nAl+' alerta'+(nAl>1?'s':''):''}${nPr>0?' · '+nPr+' problema'+(nPr>1?'s':''):''}</span>
       </div>
-      <div style="background:${C.gris1};padding:3px;border-radius:0 0 4px 4px;">
+      <div style="background:${C.gris1};padding:3px;border-radius:0 0 4px 4px;display:grid;grid-template-columns:1fr 1fr;gap:3px 6px;align-items:start;">
         ${itemsHTML}
       </div>
     </div>`;
   }
 
-  const checklistHTML=secciones.map(s=>seccionHTML(s)).join('');
+  const checklistBloques=secciones.map(s=>seccionHTML(s));
+  const checklistHTMLPrevias=checklistBloques.slice(0,-1).join('');
+  const checklistHTMLUltima=checklistBloques.length?checklistBloques[checklistBloques.length-1]:'';
 
   const html=`<!DOCTYPE html>
 <html lang="es">
@@ -2615,7 +2617,7 @@ function construirHTMLGuia(r){
   .firma-rol{font-size:8px;color:${C.gris3};}
 
   /* FOOTER */
-  .gs-footer{position:static;margin-top:10px;background:#fff;}
+  .gs-footer{position:static;margin-top:10px;background:#fff;page-break-inside:avoid;break-inside:avoid;}
   .footer-bar{height:1.5px;background:${C.cian};}
   .footer-content{display:flex;justify-content:space-between;padding:4px 18mm 6px;font-size:7.5px;color:${C.gris3};}
   .footer-bold{font-family:'Space Grotesk',sans-serif;font-weight:600;color:${C.oscuro};}
@@ -2627,7 +2629,7 @@ function construirHTMLGuia(r){
   .foto-page-meta{font-family:'IBM Plex Mono',monospace;font-size:7.5px;color:${C.gris3};}
   .foto-eq-head{background:${C.oscuro};color:#fff;font-size:10px;font-weight:700;
     padding:5px 8px;border-radius:4px;margin:10px 0 6px;}
-  .foto-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:8px;}
+  .foto-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:8px;}
   .foto-item{}
   .foto-frame{width:100%;aspect-ratio:4/3;border-radius:4px;overflow:hidden;
     border:0.5px solid ${C.gris2};background:${C.blueL};
@@ -2682,17 +2684,15 @@ ${(()=>{
   const statusBg=hayProblemas?C.redL:(hayAlertas?C.amberL:C.greenL);
   const statusBorder=hayProblemas?C.redD:(hayAlertas?'#EF9F27':C.greenD);
   const statusTxt=hayProblemas?'Requiere atención':(hayAlertas?'Con observaciones':'Visita completada');
-  const eqCompacto=secciones.length>8;
+  // Grid de 2 columnas siempre (antes solo se compactaba con >8 equipos;
+  // unificado en sesión 34 con el mismo criterio de la página "Equipos Revisados").
   const eqMiniHTML=secciones.map(s=>{
     const nAl=(s.items||[]).filter(i=>i.estado==='alerta').length;
     const nPr=(s.items||[]).filter(i=>i.estado==='problema').length;
     let pillBg=C.greenL,pillFg=C.greenD,pillTxt='Todo OK';
     if(nPr>0){pillBg=C.redL;pillFg=C.redD;pillTxt=nPr+(nPr>1?' problemas':' problema');}
     else if(nAl>0){pillBg=C.amberL;pillFg=C.amberD;pillTxt=nAl+(nAl>1?' alertas':' alerta');}
-    const miniStyle=eqCompacto?'padding:3px 7px;margin-bottom:3px;':'';
-    const nameStyle=eqCompacto?'font-size:8.5px;':'';
-    const pillStyle=eqCompacto?'font-size:7px;padding:1px 6px;':'';
-    return `<div class="eq-mini" style="${miniStyle}"><div class="eq-mini-name" style="${nameStyle}">${s.label}</div><span class="eq-mini-pill" style="background:${pillBg};color:${pillFg};${pillStyle}">${pillTxt}</span></div>`;
+    return `<div class="eq-mini" style="padding:3px 7px;margin-bottom:3px;"><div class="eq-mini-name" style="font-size:8.5px;">${s.label}</div><span class="eq-mini-pill" style="background:${pillBg};color:${pillFg};font-size:7px;padding:1px 6px;">${pillTxt}</span></div>`;
   }).join('');
   return `
   <div class="status-strip" style="background:${statusBg};border:1px solid ${statusBorder};">
@@ -2710,7 +2710,7 @@ ${(()=>{
   </div>
   <div class="sec-title" style="margin-top:2px;"><div class="sec-bar"></div><div class="sec-label">Equipos — vista rápida</div></div>
   <div class="sec-line"></div>
-  <div style="${eqCompacto?'display:grid;grid-template-columns:1fr 1fr;gap:2px 10px;':''}">${eqMiniHTML}</div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:2px 10px;align-items:start;">${eqMiniHTML}</div>
   `;
 })()}
 
@@ -2726,6 +2726,9 @@ ${r.req_presup&&r.presup_desc?`<div class="obs-box" style="border-color:#EF9F27;
 <!-- CONFORMIDAD -->
 <div class="sec-title"><div class="sec-bar"></div><div class="sec-label">Conformidad</div></div>
 <div class="sec-line"></div>
+<!-- Conformidad + firma + footer viajan siempre juntos: si no caben en la página 1,
+     se van los 3 juntos a la página siguiente, nunca el footer solo. -->
+<div style="page-break-inside:avoid;break-inside:avoid;">
 <div class="firma-wrap">
   <div class="firma-box">
     ${r.firma_imagen?`<img src="${r.firma_imagen}" style="height:40px;max-width:180px;display:block;margin:0 auto 4px;" alt="Firma cliente">`:'<div style="height:44px;"></div>'}
@@ -2749,6 +2752,7 @@ ${r.req_presup&&r.presup_desc?`<div class="obs-box" style="border-color:#EF9F27;
     <div style="text-align:right;">Guía N° ${numGuia}  ·  ${r.fecha||'—'}</div>
   </div>
 </div>
+</div>
 
 </div><!-- fin página 1: Información + Observaciones + Conformidad + firma, siempre juntos -->
 
@@ -2759,13 +2763,17 @@ ${r.req_presup&&r.presup_desc?`<div class="obs-box" style="border-color:#EF9F27;
   <div style="text-align:center;"><div class="foto-page-title">Equipos Revisados  ·  ${r.cliente||'—'}</div></div>
   <div class="foto-page-meta" style="text-align:right;">Guía N° ${numGuia}<br>${r.fecha||'—'}</div>
 </div>
-${checklistHTML}
+${checklistHTMLPrevias}
+<!-- El último equipo revisado viaja siempre junto con el footer -->
+<div style="page-break-inside:avoid;break-inside:avoid;">
+${checklistHTMLUltima}
 <div class="gs-footer">
   <div class="footer-bar"></div>
   <div class="footer-content">
     <div><span class="footer-bold">Ingeniería y Servicios Climatermic</span><br>www.climatermic.cl  ·  servicios@climatermic.cl  ·  +562 2 372 7585</div>
     <div style="text-align:right;">Guía N° ${numGuia}  ·  ${r.fecha||'—'}</div>
   </div>
+</div>
 </div>
 </div><!-- fin página 2: equipos revisados -->
 
@@ -2781,7 +2789,8 @@ ${secciones.some(s=>(s.fotos||0)>0||(s.fotosItems&&Object.keys(s.fotosItems||{})
   </div>
   <div class="foto-page-meta" style="text-align:right;">Guía N° ${numGuia}<br>${r.fecha||'—'}</div>
 </div>
-${secciones.map(s=>{
+${(()=>{
+  const bloques=secciones.map(s=>{
     // Fotos de items con alerta/problema
     var fotosItemsHTML=(s.items||[]).filter(i=>(i.estado==='alerta'||i.estado==='problema')&&(i.nFotosItem>0||(i.urlsFotos&&i.urlsFotos.length>0))).map(i=>{
       var urls=i.urlsFotos&&i.urlsFotos.length>0?i.urlsFotos:[];
@@ -2819,7 +2828,13 @@ ${secciones.map(s=>{
     if(!fotosItemsHTML&&!fotosSeccionHTML) return '';
     return `<div class="foto-eq-head">${s.label}${s.ubicacion?' · '+s.ubicacion:''}</div>
       <div class="foto-grid">${fotosItemsHTML}${fotosSeccionHTML}</div>`;
-  }).join('')}
+  }).filter(b=>b);
+  const previos=bloques.slice(0,-1).join('');
+  const ultimo=bloques.length?bloques[bloques.length-1]:'';
+  return `${previos}
+<!-- El último bloque de fotos viaja siempre junto con el footer -->
+<div style="page-break-inside:avoid;break-inside:avoid;">
+${ultimo}
 <div class="gs-footer">
   <div class="footer-bar"></div>
   <div class="footer-content">
@@ -2827,6 +2842,8 @@ ${secciones.map(s=>{
     <div style="text-align:right;">Guía N° ${numGuia}  ·  ${r.fecha||'—'}</div>
   </div>
 </div>
+</div>`;
+})()}
 </div><!-- fin página 3 (fotos) -->
 `:''}
 

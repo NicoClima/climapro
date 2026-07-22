@@ -1862,53 +1862,41 @@ function construirHTMLGuia(r){
 
   // Generar HTML checklist por sección
   function seccionHTML(s){
-    const incid=(s.items||[]).filter(i=>i.estado==='alerta'||i.estado==='problema');
     const nOk=(s.items||[]).filter(i=>i.estado==='ok').length;
     const nAl=(s.items||[]).filter(i=>i.estado==='alerta').length;
     const nPr=(s.items||[]).filter(i=>i.estado==='problema').length;
     const total=nOk+nAl+nPr;
 
-    let incidHTML='';
-    incid.forEach(i=>{
+    // Listado de TODOS los ítems del checklist, cada uno con su marca de estado
+    let itemsHTML='';
+    (s.items||[]).forEach(i=>{
+      const esOk=i.estado==='ok';
       const esAl=i.estado==='alerta';
-      const bg=esAl?C.amberL:C.redL;
-      const fg=esAl?C.amberD:C.redD;
-      const bdr=esAl?'#EF9F27':C.redD;
-      const lbl=esAl?'ALERTA':'PROBLEMA';
-      incidHTML+=`<div style="margin-top:4px;border-radius:4px;border:0.5px solid ${bdr};border-left:3px solid ${bdr};background:${bg};padding:5px 8px;">
-        <span style="background:${bg};color:${fg};border:1px solid ${bdr};border-radius:3px;font-size:8px;font-weight:700;padding:1px 5px;margin-right:6px;">${lbl}</span>
-        <span style="font-size:9px;font-weight:600;color:#1a1a18;">${i.item}</span>
-        ${i.obs?`<div style="font-size:8.5px;color:${fg};font-style:italic;margin-top:2px;margin-left:42px;">${i.obs}</div>`:''}
+      const bg=esOk?C.greenL:esAl?C.amberL:C.redL;
+      const fg=esOk?C.greenD:esAl?C.amberD:C.redD;
+      const bdr=esOk?C.greenD:esAl?'#EF9F27':C.redD;
+      const lbl=esOk?'OK':esAl?'ALERTA':'PROBLEMA';
+      itemsHTML+=`<div style="border-radius:3px;border:0.5px solid ${bdr};border-left:3px solid ${bdr};background:${bg};padding:2.5px 7px;">
+        <span style="background:${bg};color:${fg};border:1px solid ${bdr};border-radius:3px;font-size:7px;font-weight:700;padding:0.5px 4px;margin-right:5px;">${lbl}</span>
+        <span style="font-size:8.5px;font-weight:600;color:#1a1a18;">${i.item}</span>
+        ${i.obs?`<div style="font-size:8px;color:${fg};font-style:italic;margin-top:1px;margin-left:38px;">${i.obs}</div>`:''}
       </div>`;
     });
 
-    return `<div class="equipo-card" style="margin-bottom:10px;">
-      <div style="background:${C.oscuro};color:#fff;font-size:9.5px;font-weight:700;padding:5px 8px;border-radius:4px 4px 0 0;">
-        ${s.label}${s.ubicacion?' · '+s.ubicacion:''}${s.cantidad>1?' · '+s.cantidad+' unidades':''}
+    return `<div class="equipo-card" style="margin-bottom:6px;">
+      <div style="background:${C.oscuro};color:#fff;font-size:9px;font-weight:700;padding:4px 8px;border-radius:4px 4px 0 0;display:flex;justify-content:space-between;align-items:center;">
+        <span>${s.label}${s.ubicacion?' · '+s.ubicacion:''}${s.cantidad>1?' · '+s.cantidad+' unidades':''}</span>
+        <span style="font-size:7.5px;font-weight:500;opacity:0.85;">${total} chequeos${nAl>0?' · '+nAl+' alerta'+(nAl>1?'s':''):''}${nPr>0?' · '+nPr+' problema'+(nPr>1?'s':''):''}</span>
       </div>
-      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px;background:${C.gris1};padding:4px;border-radius:0 0 4px 4px;">
-        <div style="background:${C.blueL};border-radius:3px;padding:5px;text-align:center;">
-          <div style="font-size:16px;font-weight:700;color:#0C5282;">${total}</div>
-          <div style="font-size:7px;color:${C.gris3};">Chequeos</div>
-        </div>
-        <div style="background:${C.greenL};border-radius:3px;padding:5px;text-align:center;">
-          <div style="font-size:16px;font-weight:700;color:${C.greenD};">${nOk}</div>
-          <div style="font-size:7px;color:${C.gris3};">OK</div>
-        </div>
-        <div style="background:${C.amberL};border-radius:3px;padding:5px;text-align:center;">
-          <div style="font-size:16px;font-weight:700;color:${C.amberD};">${nAl}</div>
-          <div style="font-size:7px;color:${C.gris3};">Alertas</div>
-        </div>
-        <div style="background:${C.redL};border-radius:3px;padding:5px;text-align:center;">
-          <div style="font-size:16px;font-weight:700;color:${C.redD};">${nPr}</div>
-          <div style="font-size:7px;color:${C.gris3};">Problemas</div>
-        </div>
+      <div style="background:${C.gris1};padding:3px;border-radius:0 0 4px 4px;display:grid;grid-template-columns:1fr 1fr;gap:3px 6px;align-items:start;">
+        ${itemsHTML}
       </div>
-      ${incidHTML}
     </div>`;
   }
 
-  const checklistHTML=secciones.map(s=>seccionHTML(s)).join('');
+  const checklistBloques=secciones.map(s=>seccionHTML(s));
+  const checklistHTMLPrevias=checklistBloques.slice(0,-1).join('');
+  const checklistHTMLUltima=checklistBloques.length?checklistBloques[checklistBloques.length-1]:'';
 
   const html=`<!DOCTYPE html>
 <html lang="es">
@@ -1932,6 +1920,8 @@ function construirHTMLGuia(r){
     page-break-inside:avoid;
     break-inside:avoid;
   }
+  /* Evitar que un título de sección quede solo al final de una página,
+     separado del contenido que le sigue */
   .sec-title, .sec-title + .sec-line{
     page-break-after:avoid;
     break-after:avoid;
@@ -1995,9 +1985,9 @@ function construirHTMLGuia(r){
   .firma-rol{font-size:8px;color:${C.gris3};}
 
   /* FOOTER */
-  .gs-footer{position:fixed;bottom:0;left:0;right:0;background:#fff;}
+  .gs-footer{position:static;margin-top:10px;background:#fff;page-break-inside:avoid;break-inside:avoid;}
   .footer-bar{height:1.5px;background:${C.cian};}
-  .footer-content{display:flex;justify-content:space-between;padding:4px 18mm 0;font-size:7.5px;color:${C.gris3};}
+  .footer-content{display:flex;justify-content:space-between;padding:4px 18mm 6px;font-size:7.5px;color:${C.gris3};}
   .footer-bold{font-family:'Space Grotesk',sans-serif;font-weight:600;color:${C.oscuro};}
 
   /* FOTOS PAGE */
@@ -2007,7 +1997,7 @@ function construirHTMLGuia(r){
   .foto-page-meta{font-family:'IBM Plex Mono',monospace;font-size:7.5px;color:${C.gris3};}
   .foto-eq-head{background:${C.oscuro};color:#fff;font-size:10px;font-weight:700;
     padding:5px 8px;border-radius:4px;margin:10px 0 6px;}
-  .foto-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:8px;}
+  .foto-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:8px;}
   .foto-item{}
   .foto-frame{width:100%;aspect-ratio:4/3;border-radius:4px;overflow:hidden;
     border:0.5px solid ${C.gris2};background:${C.blueL};
@@ -2036,47 +2026,6 @@ function construirHTMLGuia(r){
 </div>
 <div class="gs-head-border2"></div>
 
-<!-- SCORECARD RESUMEN (arriba, primero) -->
-${(()=>{
-  const totalItems=totalOk+totalAl+totalPr;
-  const hayProblemas=totalPr>0;
-  const hayAlertas=totalAl>0;
-  const statusColor=hayProblemas?C.redD:(hayAlertas?C.amberD:C.greenD);
-  const statusBg=hayProblemas?C.redL:(hayAlertas?C.amberL:C.greenL);
-  const statusBorder=hayProblemas?C.redD:(hayAlertas?'#EF9F27':C.greenD);
-  const statusTxt=hayProblemas?'Requiere atención':(hayAlertas?'Con observaciones':'Visita completada');
-  const eqCompacto=secciones.length>8;
-  const eqMiniHTML=secciones.map(s=>{
-    const nAl=(s.items||[]).filter(i=>i.estado==='alerta').length;
-    const nPr=(s.items||[]).filter(i=>i.estado==='problema').length;
-    let pillBg=C.greenL,pillFg=C.greenD,pillTxt='Todo OK';
-    if(nPr>0){pillBg=C.redL;pillFg=C.redD;pillTxt=nPr+(nPr>1?' problemas':' problema');}
-    else if(nAl>0){pillBg=C.amberL;pillFg=C.amberD;pillTxt=nAl+(nAl>1?' alertas':' alerta');}
-    const miniStyle=eqCompacto?'padding:3px 7px;margin-bottom:3px;':'';
-    const nameStyle=eqCompacto?'font-size:8.5px;':'';
-    const pillStyle=eqCompacto?'font-size:7px;padding:1px 6px;':'';
-    return `<div class="eq-mini" style="${miniStyle}"><div class="eq-mini-name" style="${nameStyle}">${s.label}</div><span class="eq-mini-pill" style="background:${pillBg};color:${pillFg};${pillStyle}">${pillTxt}</span></div>`;
-  }).join('');
-  return `
-  <div class="status-strip" style="background:${statusBg};border:1px solid ${statusBorder};">
-    <div class="status-dot" style="background:${statusColor};"></div>
-    <div class="status-txt" style="color:${statusColor};">${statusTxt}</div>
-    <div class="status-sub" style="color:${statusColor};">${r.fecha||'—'} · ${r.tecnico||'—'}</div>
-  </div>
-  <div class="score-label"><div class="score-bar"></div>Resumen de la visita</div>
-  <div class="score-grid">
-    <div class="score-card" style="background:${C.blueL};"><div class="score-val" style="color:#0C447C;">${totalItems}</div><div class="score-lbl" style="color:#185FA5;">ÍTEMS</div></div>
-    <div class="score-card" style="background:${C.greenL};"><div class="score-val" style="color:${C.greenD};">${totalOk}</div><div class="score-lbl" style="color:${C.greenD};">OK</div></div>
-    <div class="score-card" style="background:${C.amberL};"><div class="score-val" style="color:${C.amberD};">${totalAl}</div><div class="score-lbl" style="color:${C.amberD};">ALERTAS</div></div>
-    <div class="score-card" style="background:${C.redL};"><div class="score-val" style="color:${C.redD};">${totalPr}</div><div class="score-lbl" style="color:${C.redD};">PROBLEMAS</div></div>
-    <div class="score-card" style="background:${r.req_presup?'#EDE9FF':C.fondo};"><div class="score-val" style="color:${r.req_presup?'#3C3489':C.gris3};font-size:18px;">${r.req_presup?'SÍ':'NO'}</div><div class="score-lbl" style="color:${r.req_presup?'#3C3489':C.gris3};">PRESUPUESTO</div></div>
-  </div>
-  <div class="sec-title" style="margin-top:2px;"><div class="sec-bar"></div><div class="sec-label">Equipos — vista rápida</div></div>
-  <div class="sec-line"></div>
-  <div style="${eqCompacto?'display:grid;grid-template-columns:1fr 1fr;gap:2px 10px;':''}">${eqMiniHTML}</div>
-  `;
-})()}
-
 <!-- DATOS VISITA -->
 <div class="sec-title"><div class="sec-bar"></div><div class="sec-label">Información de la Visita</div></div>
 <div class="sec-line"></div>
@@ -2094,10 +2043,44 @@ ${(()=>{
   </div>
 </div>
 
-<!-- EQUIPOS -->
-<div class="sec-title"><div class="sec-bar"></div><div class="sec-label">Equipos Revisados</div></div>
-<div class="sec-line"></div>
-${checklistHTML}
+<!-- SCORECARD RESUMEN (segundo bloque, después de Información de la Visita) -->
+${(()=>{
+  const totalItems=totalOk+totalAl+totalPr;
+  const hayProblemas=totalPr>0;
+  const hayAlertas=totalAl>0;
+  const statusColor=hayProblemas?C.redD:(hayAlertas?C.amberD:C.greenD);
+  const statusBg=hayProblemas?C.redL:(hayAlertas?C.amberL:C.greenL);
+  const statusBorder=hayProblemas?C.redD:(hayAlertas?'#EF9F27':C.greenD);
+  const statusTxt=hayProblemas?'Requiere atención':(hayAlertas?'Con observaciones':'Visita completada');
+  // Grid de 2 columnas siempre (antes solo se compactaba con >8 equipos;
+  // unificado en sesión 34 con el mismo criterio de la página "Equipos Revisados").
+  const eqMiniHTML=secciones.map(s=>{
+    const nAl=(s.items||[]).filter(i=>i.estado==='alerta').length;
+    const nPr=(s.items||[]).filter(i=>i.estado==='problema').length;
+    let pillBg=C.greenL,pillFg=C.greenD,pillTxt='Todo OK';
+    if(nPr>0){pillBg=C.redL;pillFg=C.redD;pillTxt=nPr+(nPr>1?' problemas':' problema');}
+    else if(nAl>0){pillBg=C.amberL;pillFg=C.amberD;pillTxt=nAl+(nAl>1?' alertas':' alerta');}
+    return `<div class="eq-mini" style="padding:3px 7px;margin-bottom:3px;"><div class="eq-mini-name" style="font-size:8.5px;">${s.label}</div><span class="eq-mini-pill" style="background:${pillBg};color:${pillFg};font-size:7px;padding:1px 6px;">${pillTxt}</span></div>`;
+  }).join('');
+  return `
+  <div class="status-strip" style="background:${statusBg};border:1px solid ${statusBorder};">
+    <div class="status-dot" style="background:${statusColor};"></div>
+    <div class="status-txt" style="color:${statusColor};">${statusTxt}</div>
+    <div class="status-sub" style="color:${statusColor};">${r.fecha||'—'} · ${r.tecnico||'—'}</div>
+  </div>
+  <div class="score-label"><div class="score-bar"></div>Resumen de la visita</div>
+  <div class="score-grid">
+    <div class="score-card" style="background:${C.blueL};"><div class="score-val" style="color:#0C447C;">${totalItems}</div><div class="score-lbl" style="color:#185FA5;">ÍTEMS</div></div>
+    <div class="score-card" style="background:${C.greenL};"><div class="score-val" style="color:${C.greenD};">${totalOk}</div><div class="score-lbl" style="color:${C.greenD};">OK</div></div>
+    <div class="score-card" style="background:${C.amberL};"><div class="score-val" style="color:${C.amberD};">${totalAl}</div><div class="score-lbl" style="color:${C.amberD};">ALERTAS</div></div>
+    <div class="score-card" style="background:${C.redL};"><div class="score-val" style="color:${C.redD};">${totalPr}</div><div class="score-lbl" style="color:${C.redD};">PROBLEMAS</div></div>
+    <div class="score-card" style="background:${r.req_presup?'#EDE9FF':C.fondo};"><div class="score-val" style="color:${r.req_presup?'#3C3489':C.gris3};font-size:18px;">${r.req_presup?'SÍ':'NO'}</div><div class="score-lbl" style="color:${r.req_presup?'#3C3489':C.gris3};">PRESUPUESTO</div></div>
+  </div>
+  <div class="sec-title" style="margin-top:2px;"><div class="sec-bar"></div><div class="sec-label">Equipos — vista rápida</div></div>
+  <div class="sec-line"></div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:2px 10px;align-items:start;">${eqMiniHTML}</div>
+  `;
+})()}
 
 <!-- OBSERVACIONES -->
 ${r.obs_general?`<div class="sec-title"><div class="sec-bar"></div><div class="sec-label">Observaciones y Recomendaciones</div></div>
@@ -2108,35 +2091,12 @@ ${r.obs_general?`<div class="sec-title"><div class="sec-bar"></div><div class="s
 ${r.req_presup&&r.presup_desc?`<div class="obs-box" style="border-color:#EF9F27;background:${C.amberL};color:${C.amberD};">
   <strong>Requiere presupuesto:</strong> ${r.presup_desc}</div>`:''}
 
-<!-- RESUMEN -->
-<div class="sec-title"><div class="sec-bar"></div><div class="sec-label">Resumen de la Visita</div></div>
-<div class="sec-line"></div>
-<div class="metrics">
-  <div class="metric" style="background:${C.blueL};">
-    <div class="metric-val" style="color:#0C5282;">${totalOk+totalAl+totalPr}</div>
-    <div class="metric-lbl">Ítems revisados</div>
-  </div>
-  <div class="metric" style="background:${C.greenL};">
-    <div class="metric-val" style="color:${C.greenD};">${totalOk}</div>
-    <div class="metric-lbl">OK</div>
-  </div>
-  <div class="metric" style="background:${C.amberL};">
-    <div class="metric-val" style="color:${C.amberD};">${totalAl}</div>
-    <div class="metric-lbl">Alertas</div>
-  </div>
-  <div class="metric" style="background:${C.redL};">
-    <div class="metric-val" style="color:${C.redD};">${totalPr}</div>
-    <div class="metric-lbl">Problemas</div>
-  </div>
-  <div class="metric" style="background:${r.req_presup?'#EDE9FF':'#f5f5f0'};">
-    <div class="metric-val" style="color:${r.req_presup?'#3C3489':'#9a9a96'};font-size:14px;">${r.req_presup?'Sí':'No'}</div>
-    <div class="metric-lbl">Presupuesto</div>
-  </div>
-</div>
-
 <!-- CONFORMIDAD -->
 <div class="sec-title"><div class="sec-bar"></div><div class="sec-label">Conformidad</div></div>
 <div class="sec-line"></div>
+<!-- Conformidad + firma + footer viajan siempre juntos: si no caben en la página 1,
+     se van los 3 juntos a la página siguiente, nunca el footer solo. -->
+<div style="page-break-inside:avoid;break-inside:avoid;">
 <div class="firma-wrap">
   <div class="firma-box">
     ${r.firma_imagen?`<img src="${r.firma_imagen}" style="height:40px;max-width:180px;display:block;margin:0 auto 4px;" alt="Firma cliente">`:'<div style="height:44px;"></div>'}
@@ -2160,10 +2120,34 @@ ${r.req_presup&&r.presup_desc?`<div class="obs-box" style="border-color:#EF9F27;
     <div style="text-align:right;">Guía N° ${numGuia}  ·  ${r.fecha||'—'}</div>
   </div>
 </div>
+</div>
 
-<!-- PÁGINA 2: FOTOS -->
+</div><!-- fin página 1: Información + Observaciones + Conformidad + firma, siempre juntos -->
+
+<!-- PÁGINA 2: EQUIPOS REVISADOS (detalle completo, en su propia página) -->
+<div class="page page-break">
+<div class="foto-page-head">
+  <div><img src="${LOGO}" style="height:28px;" alt="Climatermic"></div>
+  <div style="text-align:center;"><div class="foto-page-title">Equipos Revisados  ·  ${r.cliente||'—'}</div></div>
+  <div class="foto-page-meta" style="text-align:right;">Guía N° ${numGuia}<br>${r.fecha||'—'}</div>
+</div>
+${checklistHTMLPrevias}
+<!-- El último equipo revisado viaja siempre junto con el footer -->
+<div style="page-break-inside:avoid;break-inside:avoid;">
+${checklistHTMLUltima}
+<div class="gs-footer">
+  <div class="footer-bar"></div>
+  <div class="footer-content">
+    <div><span class="footer-bold">Ingeniería y Servicios Climatermic</span><br>www.climatermic.cl  ·  servicios@climatermic.cl  ·  +562 2 372 7585</div>
+    <div style="text-align:right;">Guía N° ${numGuia}  ·  ${r.fecha||'—'}</div>
+  </div>
+</div>
+</div>
+</div><!-- fin página 2: equipos revisados -->
+
+<!-- PÁGINA 3: FOTOS -->
 ${secciones.some(s=>(s.fotos||0)>0||(s.fotosItems&&Object.keys(s.fotosItems||{}).length>0))?`
-<div class="page-break"></div>
+<div class="page page-break">
 <div class="foto-page-head">
   <div>
     <img src="${LOGO}" style="height:28px;" alt="Climatermic">
@@ -2173,7 +2157,8 @@ ${secciones.some(s=>(s.fotos||0)>0||(s.fotosItems&&Object.keys(s.fotosItems||{})
   </div>
   <div class="foto-page-meta" style="text-align:right;">Guía N° ${numGuia}<br>${r.fecha||'—'}</div>
 </div>
-${secciones.map(s=>{
+${(()=>{
+  const bloques=secciones.map(s=>{
     // Fotos de items con alerta/problema
     var fotosItemsHTML=(s.items||[]).filter(i=>(i.estado==='alerta'||i.estado==='problema')&&(i.nFotosItem>0||(i.urlsFotos&&i.urlsFotos.length>0))).map(i=>{
       var urls=i.urlsFotos&&i.urlsFotos.length>0?i.urlsFotos:[];
@@ -2211,10 +2196,24 @@ ${secciones.map(s=>{
     if(!fotosItemsHTML&&!fotosSeccionHTML) return '';
     return `<div class="foto-eq-head">${s.label}${s.ubicacion?' · '+s.ubicacion:''}</div>
       <div class="foto-grid">${fotosItemsHTML}${fotosSeccionHTML}</div>`;
-  }).join('')}
-`:''}
-
+  }).filter(b=>b);
+  const previos=bloques.slice(0,-1).join('');
+  const ultimo=bloques.length?bloques[bloques.length-1]:'';
+  return `${previos}
+<!-- El último bloque de fotos viaja siempre junto con el footer -->
+<div style="page-break-inside:avoid;break-inside:avoid;">
+${ultimo}
+<div class="gs-footer">
+  <div class="footer-bar"></div>
+  <div class="footer-content">
+    <div><span class="footer-bold">Ingeniería y Servicios Climatermic</span><br>www.climatermic.cl  ·  servicios@climatermic.cl  ·  +562 2 372 7585</div>
+    <div style="text-align:right;">Guía N° ${numGuia}  ·  ${r.fecha||'—'}</div>
+  </div>
 </div>
+</div>`;
+})()}
+</div><!-- fin página 3 (fotos) -->
+`:''}
 
 <scr'+'ipt>window.onload=function(){window.print();}<\/scr'+'ipt>
 </body></html>`;
