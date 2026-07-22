@@ -2147,10 +2147,17 @@ ${r.req_presup&&r.presup_desc?`<div class="obs-box" style="border-color:#EF9F27;
   <div class="foto-page-meta" style="text-align:right;">Guía N° ${numGuia}<br>${r.fecha||'—'}</div>
 </div>
 </td></tr></thead>
-<tbody><tr><td style="padding:0;">
-${checklistHTMLPrevias}
-<!-- El último equipo revisado viaja siempre junto con el footer -->
-<div style="page-break-inside:avoid;break-inside:avoid;">
+<tbody>
+<!-- Cada equipo va en su propia fila de tabla (no todos dentro de una sola
+     celda gigante): así, si un equipo no cabe entero en lo que queda de
+     página, el navegador mueve la fila COMPLETA a la siguiente — el mismo
+     mecanismo, ya probado, con el que se repite el encabezado (thead).
+     Un <div> con page-break-inside:avoid anidado dentro de una única celda
+     que debe fragmentarse no es respetado de forma confiable; una <tr> de
+     tabla propia sí lo es. -->
+${checklistBloques.slice(0,-1).map(b=>`<tr style="page-break-inside:avoid;break-inside:avoid;"><td style="padding:0;">${b}</td></tr>`).join('')}
+<!-- El último equipo revisado viaja siempre junto con el footer, en su propia fila -->
+<tr style="page-break-inside:avoid;break-inside:avoid;"><td style="padding:0;">
 ${checklistHTMLUltima}
 <div class="gs-footer">
   <div class="footer-bar"></div>
@@ -2159,8 +2166,8 @@ ${checklistHTMLUltima}
     <div style="text-align:right;">Guía N° ${numGuia}  ·  ${r.fecha||'—'}</div>
   </div>
 </div>
-</div>
-</td></tr></tbody>
+</td></tr>
+</tbody>
 </table>
 </div><!-- fin página 2: equipos revisados -->
 
@@ -2179,7 +2186,7 @@ ${secciones.some(s=>(s.fotos||0)>0||(s.fotosItems&&Object.keys(s.fotosItems||{})
   <div class="foto-page-meta" style="text-align:right;">Guía N° ${numGuia}<br>${r.fecha||'—'}</div>
 </div>
 </td></tr></thead>
-<tbody><tr><td style="padding:0;">
+<tbody>
 ${(()=>{
   const FOTOS_POR_FILA=5;
   // "chunks" = unidades atómicas que nunca se cortan al paginar: cada una es
@@ -2235,8 +2242,15 @@ ${(()=>{
     filas.forEach((fila,idx)=>{
       // Tabla en vez de CSS grid: mismo motivo que en seccionHTML — la fila
       // completa de fotos debe viajar como bloque atómico al paginar.
+      // Se rellena SIEMPRE hasta FOTOS_POR_FILA celdas (vacías si faltan):
+      // con table-layout:fixed, si sólo hay 1-4 fotos reales en la fila, las
+      // celdas presentes se estiran para llenar el 100% del ancho — eso
+      // rompía el tamaño de referencia uniforme de "5 fotos a lo ancho".
       const anchoCelda=(100/FOTOS_POR_FILA).toFixed(4)+'%';
-      const tdsHTML=fila.map(it=>`<td style="width:${anchoCelda};padding:0 6px 8px 0;vertical-align:top;">${it}</td>`).join('');
+      let tdsHTML=fila.map(it=>`<td style="width:${anchoCelda};padding:0 6px 8px 0;vertical-align:top;">${it}</td>`).join('');
+      for(let k=fila.length;k<FOTOS_POR_FILA;k++){
+        tdsHTML+=`<td style="width:${anchoCelda};padding:0;"></td>`;
+      }
       const filaHTML=`<table style="width:100%;border-collapse:collapse;table-layout:fixed;"><tbody><tr style="page-break-inside:avoid;break-inside:avoid;">${tdsHTML}</tr></tbody></table>`;
       if(idx===0){
         // Encabezado + primera fila viajan juntos (evita encabezado huérfano)
@@ -2246,11 +2260,13 @@ ${(()=>{
       }
     });
   });
-  const previos=chunks.slice(0,-1).join('');
+  // Cada chunk (encabezado+primera fila, o fila siguiente) en su propia
+  // <tr> de tabla — igual que en "Equipos Revisados": una fila de tabla
+  // completa sí viaja atómica de forma confiable al paginar; un <div> con
+  // page-break-inside:avoid anidado dentro de una única celda gigante no.
+  const filasPrevias=chunks.slice(0,-1).map(c=>`<tr style="page-break-inside:avoid;break-inside:avoid;"><td style="padding:0;">${c}</td></tr>`).join('');
   const ultimo=chunks.length?chunks[chunks.length-1]:'';
-  return `${previos}
-<!-- La última fila de fotos viaja siempre junto con el footer -->
-<div style="page-break-inside:avoid;break-inside:avoid;">
+  const filaFinal=`<tr style="page-break-inside:avoid;break-inside:avoid;"><td style="padding:0;">
 ${ultimo}
 <div class="gs-footer">
   <div class="footer-bar"></div>
@@ -2259,9 +2275,10 @@ ${ultimo}
     <div style="text-align:right;">Guía N° ${numGuia}  ·  ${r.fecha||'—'}</div>
   </div>
 </div>
-</div>`;
+</td></tr>`;
+  return filasPrevias+filaFinal;
 })()}
-</td></tr></tbody>
+</tbody>
 </table>
 </div><!-- fin página 3 (fotos) -->
 `:''}
