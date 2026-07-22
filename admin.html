@@ -340,7 +340,7 @@ body{padding:20px;justify-content:center;background:#e8e4dc;}
 const _SB_AUTH_ADMIN=window.supabase.createClient(
   'https://okwyfpaifseqcrneccxa.supabase.co',
   'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9rd3lmcGFpZnNlcWNybmVjY3hhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk3MDUwMzgsImV4cCI6MjA5NTI4MTAzOH0.EGPbNdb2BUUOzoLGeAOlG5wJ8EX8eKh5iA1tnFj46b0',
-  {auth:{persistSession:true, autoRefreshToken:true}}
+  {auth:{persistSession:true, autoRefreshToken:true, storageKey:'sb-climapro-admin-auth'}}
 );
 window._authTokenAdmin=null;
 _SB_AUTH_ADMIN.auth.onAuthStateChange(function(_event,session){

@@ -301,7 +301,7 @@ body{font-family:var(--font);background:#e0e0dc;display:flex;align-items:flex-st
 const _SB_AUTH_TEC=window.supabase.createClient(
   'https://okwyfpaifseqcrneccxa.supabase.co',
   'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9rd3lmcGFpZnNlcWNybmVjY3hhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk3MDUwMzgsImV4cCI6MjA5NTI4MTAzOH0.EGPbNdb2BUUOzoLGeAOlG5wJ8EX8eKh5iA1tnFj46b0',
-  {auth:{persistSession:true, autoRefreshToken:true}}
+  {auth:{persistSession:true, autoRefreshToken:true, storageKey:'sb-climapro-tecnico-auth'}}
 );
 window._authTokenTecnico=null;
 _SB_AUTH_TEC.auth.onAuthStateChange(function(_event,session){
