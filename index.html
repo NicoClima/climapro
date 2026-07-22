@@ -10,6 +10,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="ClimaPro">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
 :root{
   --teal:#1D9E75;--teal-dark:#0F6E56;--teal-light:#E1F5EE;--teal-mid:#9FE1CB;
@@ -286,28 +287,60 @@ body{font-family:var(--font);background:#e0e0dc;display:flex;align-items:flex-st
   </div>
 </div>
 <script>
-function checkLoginWizard(){
+// ── Login real contra Supabase Auth (antes: comparación de texto plano) ──
+// La anon key sigue siendo pública (así funciona Supabase), pero ahora
+// no basta con tenerla: sin haber iniciado sesión con estas credenciales,
+// las políticas RLS rechazan cualquier lectura/escritura. Ver
+// proteger_datos_rls.sql para el detalle de las políticas.
+// NOTA: este bloque corre ANTES de que se declare "H" (headers de las
+// llamadas a Supabase, definido más abajo en el script principal), así
+// que la restauración de sesión al cargar la página deja el token en
+// window._authTokenTecnico y es "H" quien lo recoge al inicializarse.
+// Los eventos posteriores (login manual, refresco de token) sí pueden
+// escribir directo en H porque para entonces ya existe.
+const _SB_AUTH_TEC=window.supabase.createClient(
+  'https://okwyfpaifseqcrneccxa.supabase.co',
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9rd3lmcGFpZnNlcWNybmVjY3hhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk3MDUwMzgsImV4cCI6MjA5NTI4MTAzOH0.EGPbNdb2BUUOzoLGeAOlG5wJ8EX8eKh5iA1tnFj46b0',
+  {auth:{persistSession:true, autoRefreshToken:true}}
+);
+window._authTokenTecnico=null;
+_SB_AUTH_TEC.auth.onAuthStateChange(function(_event,session){
+  window._authTokenTecnico=session?session.access_token:null;
+  if(typeof H!=='undefined' && session) H.Authorization='Bearer '+session.access_token;
+});
+async function checkLoginWizard(){
   var pwd=document.getElementById('login-pwd-wizard').value;
-  if(pwd==='Climatech'){
+  var btn=document.querySelector('.login-btn-wizard');
+  if(btn){ btn.disabled=true; btn.textContent='Verificando...'; }
+  try{
+    var resp=await _SB_AUTH_TEC.auth.signInWithPassword({email:'tecnico@climapro.cl',password:pwd});
+    if(resp.error) throw resp.error;
+    window._authTokenTecnico=resp.data.session.access_token;
+    if(typeof H!=='undefined') H.Authorization='Bearer '+resp.data.session.access_token;
     document.getElementById('login-screen-wizard').style.display='none';
-    // Persistente (localStorage): se pide una sola vez por dispositivo/navegador,
-    // no interrumpe el uso diario en terreno entre visitas.
-    localStorage.setItem('climapro_wizard_auth','1');
-  } else {
+  } catch(e){
     var err=document.getElementById('login-error-wizard');
     err.style.display='block';
     document.getElementById('login-pwd-wizard').value='';
     document.getElementById('login-pwd-wizard').focus();
     setTimeout(function(){err.style.display='none';},3000);
+  } finally {
+    if(btn){ btn.disabled=false; btn.textContent='Ingresar'; }
   }
 }
-// Si ya autenticó antes en este dispositivo, saltar la pantalla de acceso
-if(localStorage.getItem('climapro_wizard_auth')==='1'){
-  window.addEventListener('DOMContentLoaded',function(){
-    var ls=document.getElementById('login-screen-wizard');
-    if(ls)ls.style.display='none';
-  });
-}
+// Si ya autenticó antes en este dispositivo (sesión persistida), saltar
+// la pantalla de acceso — mismo comportamiento de siempre ("se pide una
+// sola vez por dispositivo"), ahora respaldado por una sesión real.
+(async function(){
+  var resp=await _SB_AUTH_TEC.auth.getSession();
+  if(resp.data && resp.data.session){
+    window._authTokenTecnico=resp.data.session.access_token;
+    window.addEventListener('DOMContentLoaded',function(){
+      var ls=document.getElementById('login-screen-wizard');
+      if(ls)ls.style.display='none';
+    });
+  }
+})();
 </script>
 
 <!-- MODAL BORRADOR -->
@@ -578,7 +611,7 @@ body{padding:12px;justify-content:center;background:#1D9E75;}
 <script>
 const SB='https://okwyfpaifseqcrneccxa.supabase.co';
 const KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9rd3lmcGFpZnNlcWNybmVjY3hhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk3MDUwMzgsImV4cCI6MjA5NTI4MTAzOH0.EGPbNdb2BUUOzoLGeAOlG5wJ8EX8eKh5iA1tnFj46b0';
-const H={'apikey':KEY,'Authorization':'Bearer '+KEY,'Content-Type':'application/json','Accept':'application/json'};
+const H={'apikey':KEY,'Authorization':'Bearer '+(window._authTokenTecnico||KEY),'Content-Type':'application/json','Accept':'application/json'};
 
 // Días límite por frecuencia para generar alerta
 const DIAS_ALERTA={mensual:45,bimestral:75,trimestral:105,cuatrimestral:135,semestral:195,anual:375};
@@ -1823,7 +1856,7 @@ function construirHTMLGuia(r){
     gris1:'#E8E4DC', gris2:'#B0ADA6', gris3:'#6E6B65',
     greenL:'#E6F4EA', greenD:'#1E6B2E',
     amberL:'#FEF3E2', amberD:'#7A4100',
-    redL:'#FDECEA', redD:'#8B0000',
+    redL:'#FDECEA', redD:'#ED1C24',
     blueL:'#E3F4FD',
   };
 
@@ -1882,9 +1915,12 @@ function construirHTMLGuia(r){
 <head>
 <meta charset="UTF-8">
 <title>Guia de Servicio N° ${numGuia}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
   *{box-sizing:border-box;margin:0;padding:0;}
-  body{font-family:Arial,Helvetica,sans-serif;font-size:10px;color:${C.tinta};background:#fff;}
+  body{font-family:'IBM Plex Sans',Arial,Helvetica,sans-serif;font-size:10px;color:${C.tinta};background:#fff;}
   @page{size:letter;margin:14mm 18mm 20mm 18mm;}
   @media print{
     body{margin:0;}
@@ -1908,15 +1944,15 @@ function construirHTMLGuia(r){
   .gs-head-border2{height:1px;background:${C.cian};margin-bottom:12px;}
   .logo{height:42px;}
   .gs-num-block{text-align:right;min-width:160px;}
-  .gs-num-label{font-size:7.5px;color:${C.gris3};margin-bottom:2px;}
-  .gs-num{font-size:26px;font-weight:700;color:${C.naranja};line-height:1;margin-bottom:4px;}
+  .gs-num-label{font-family:'IBM Plex Mono',monospace;font-size:7px;text-transform:uppercase;letter-spacing:.12em;color:${C.gris3};margin-bottom:2px;}
+  .gs-num{font-family:'Space Grotesk',sans-serif;font-size:26px;font-weight:700;color:${C.naranja};line-height:1;margin-bottom:4px;letter-spacing:-0.015em;}
   .gs-tipo{display:inline-block;background:${C.oscuro};color:#fff;
-    font-size:7.5px;font-weight:700;padding:3px 10px;border-radius:3px;}
+    font-size:7.5px;font-weight:700;padding:3px 10px;border-radius:3px;font-family:'IBM Plex Mono',monospace;letter-spacing:.08em;text-transform:uppercase;}
 
   /* SECCIONES */
   .sec-title{display:flex;align-items:center;gap:6px;margin:12px 0 6px;}
   .sec-bar{width:3px;height:20px;background:${C.naranja};border-radius:1px;flex-shrink:0;}
-  .sec-label{font-size:10px;font-weight:700;color:${C.oscuro};text-transform:uppercase;letter-spacing:.05em;}
+  .sec-label{font-family:'Space Grotesk',sans-serif;font-size:10px;font-weight:600;color:${C.oscuro};text-transform:uppercase;letter-spacing:.05em;}
   .sec-line{height:0.5px;background:${C.gris1};margin-bottom:6px;}
 
   /* DATA BOX */
@@ -1925,7 +1961,7 @@ function construirHTMLGuia(r){
   .data-col{padding:0 10px;}
   .data-col:first-child{border-right:0.5px solid ${C.gris1};}
   .data-row{display:flex;gap:4px;margin-bottom:4px;}
-  .data-key{font-size:8.5px;color:${C.gris3};width:72px;flex-shrink:0;}
+  .data-key{font-family:'IBM Plex Mono',monospace;font-size:8px;text-transform:uppercase;letter-spacing:.04em;color:${C.gris3};width:72px;flex-shrink:0;}
   .data-val{font-size:9px;font-weight:700;color:${C.tinta};}
 
   /* OBSERVACIONES */
@@ -1938,18 +1974,18 @@ function construirHTMLGuia(r){
   .status-dot{width:9px;height:9px;border-radius:50%;flex-shrink:0;}
   .status-txt{font-size:10px;font-weight:700;}
   .status-sub{font-size:9px;margin-left:auto;}
-  .score-label{font-size:9px;font-weight:700;color:${C.oscuro};text-transform:uppercase;letter-spacing:.06em;margin:2px 0 8px;display:flex;align-items:center;gap:6px;}
+  .score-label{font-family:'Space Grotesk',sans-serif;font-size:9px;font-weight:600;color:${C.oscuro};text-transform:uppercase;letter-spacing:.06em;margin:2px 0 8px;display:flex;align-items:center;gap:6px;}
   .score-bar{width:3px;height:13px;background:${C.naranja};border-radius:1px;}
   .score-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-bottom:6px;}
   .score-card{border-radius:8px;padding:10px 4px;text-align:center;}
-  .score-val{font-size:22px;font-weight:700;line-height:1;}
-  .score-lbl{font-size:7.5px;margin-top:4px;font-weight:600;letter-spacing:.02em;}
+  .score-val{font-family:'Space Grotesk',sans-serif;font-size:22px;font-weight:700;line-height:1;}
+  .score-lbl{font-family:'IBM Plex Mono',monospace;font-size:7px;margin-top:4px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;}
   .eq-mini{display:flex;align-items:center;gap:8px;background:${C.fondo};border-radius:6px;padding:6px 10px;margin-bottom:5px;page-break-inside:avoid;break-inside:avoid;}
   .eq-mini-name{font-size:9.5px;font-weight:700;flex:1;color:${C.tinta};}
   .eq-mini-pill{font-size:8px;font-weight:700;padding:2px 8px;border-radius:10px;}
   .metric{border-radius:4px;padding:6px;text-align:center;border:0.5px solid ${C.gris1};}
-  .metric-val{font-size:18px;font-weight:700;line-height:1;}
-  .metric-lbl{font-size:7px;color:${C.gris3};margin-top:2px;}
+  .metric-val{font-family:'Space Grotesk',sans-serif;font-size:18px;font-weight:700;line-height:1;}
+  .metric-lbl{font-family:'IBM Plex Mono',monospace;font-size:6.5px;color:${C.gris3};margin-top:2px;text-transform:uppercase;letter-spacing:.04em;}
 
   /* FIRMA */
   .firma-wrap{display:grid;grid-template-columns:1fr 1fr;gap:30px;margin-top:8px;}
@@ -1962,13 +1998,13 @@ function construirHTMLGuia(r){
   .gs-footer{position:fixed;bottom:0;left:0;right:0;background:#fff;}
   .footer-bar{height:1.5px;background:${C.cian};}
   .footer-content{display:flex;justify-content:space-between;padding:4px 18mm 0;font-size:7.5px;color:${C.gris3};}
-  .footer-bold{font-weight:700;color:${C.oscuro};}
+  .footer-bold{font-family:'Space Grotesk',sans-serif;font-weight:600;color:${C.oscuro};}
 
   /* FOTOS PAGE */
   .foto-page-head{display:flex;justify-content:space-between;align-items:center;
     padding-bottom:6px;border-bottom:1.5px solid ${C.cian};margin-bottom:12px;}
-  .foto-page-title{font-size:10px;font-weight:700;color:${C.oscuro};}
-  .foto-page-meta{font-size:8px;color:${C.gris3};}
+  .foto-page-title{font-family:'Space Grotesk',sans-serif;font-size:10px;font-weight:700;color:${C.oscuro};}
+  .foto-page-meta{font-family:'IBM Plex Mono',monospace;font-size:7.5px;color:${C.gris3};}
   .foto-eq-head{background:${C.oscuro};color:#fff;font-size:10px;font-weight:700;
     padding:5px 8px;border-radius:4px;margin:10px 0 6px;}
   .foto-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:8px;}
@@ -1995,6 +2031,7 @@ function construirHTMLGuia(r){
     <div class="gs-num-label">GUÍA DE SERVICIO</div>
     <div class="gs-num">N° ${numGuia}</div>
     <span class="gs-tipo">${r.tipo_visita?.toUpperCase()||'VISITA'}</span>
+    <div style="display:flex;justify-content:flex-end;margin-top:3px;"><span style="width:36px;height:5px;background:#00AEEF;transform:skewX(-18deg);display:block;"></span></div>
   </div>
 </div>
 <div class="gs-head-border2"></div>
@@ -2008,13 +2045,17 @@ ${(()=>{
   const statusBg=hayProblemas?C.redL:(hayAlertas?C.amberL:C.greenL);
   const statusBorder=hayProblemas?C.redD:(hayAlertas?'#EF9F27':C.greenD);
   const statusTxt=hayProblemas?'Requiere atención':(hayAlertas?'Con observaciones':'Visita completada');
+  const eqCompacto=secciones.length>8;
   const eqMiniHTML=secciones.map(s=>{
     const nAl=(s.items||[]).filter(i=>i.estado==='alerta').length;
     const nPr=(s.items||[]).filter(i=>i.estado==='problema').length;
     let pillBg=C.greenL,pillFg=C.greenD,pillTxt='Todo OK';
     if(nPr>0){pillBg=C.redL;pillFg=C.redD;pillTxt=nPr+(nPr>1?' problemas':' problema');}
     else if(nAl>0){pillBg=C.amberL;pillFg=C.amberD;pillTxt=nAl+(nAl>1?' alertas':' alerta');}
-    return `<div class="eq-mini"><div class="eq-mini-name">${s.label}</div><span class="eq-mini-pill" style="background:${pillBg};color:${pillFg};">${pillTxt}</span></div>`;
+    const miniStyle=eqCompacto?'padding:3px 7px;margin-bottom:3px;':'';
+    const nameStyle=eqCompacto?'font-size:8.5px;':'';
+    const pillStyle=eqCompacto?'font-size:7px;padding:1px 6px;':'';
+    return `<div class="eq-mini" style="${miniStyle}"><div class="eq-mini-name" style="${nameStyle}">${s.label}</div><span class="eq-mini-pill" style="background:${pillBg};color:${pillFg};${pillStyle}">${pillTxt}</span></div>`;
   }).join('');
   return `
   <div class="status-strip" style="background:${statusBg};border:1px solid ${statusBorder};">
@@ -2032,7 +2073,7 @@ ${(()=>{
   </div>
   <div class="sec-title" style="margin-top:2px;"><div class="sec-bar"></div><div class="sec-label">Equipos — vista rápida</div></div>
   <div class="sec-line"></div>
-  ${eqMiniHTML}
+  <div style="${eqCompacto?'display:grid;grid-template-columns:1fr 1fr;gap:2px 10px;':''}">${eqMiniHTML}</div>
   `;
 })()}
 
@@ -2107,7 +2148,7 @@ ${r.req_presup&&r.presup_desc?`<div class="obs-box" style="border-color:#EF9F27;
     <div style="height:44px;"></div>
     <div class="firma-line"></div>
     <div class="firma-nombre">${r.tecnico||'___________________'}</div>
-    <div class="firma-rol">Técnico Climatermic</div>
+    <div class="firma-rol">Técnico IS Climatermic</div>
   </div>
 </div>
 
@@ -2115,7 +2156,7 @@ ${r.req_presup&&r.presup_desc?`<div class="obs-box" style="border-color:#EF9F27;
 <div class="gs-footer">
   <div class="footer-bar"></div>
   <div class="footer-content">
-    <div><span class="footer-bold">Climatermic Ingeniería y Servicios</span><br>www.climatermic.cl  ·  servicios@climatermic.cl  ·  +562 2 372 7585</div>
+    <div><span class="footer-bold">Ingeniería y Servicios Climatermic</span><br>www.climatermic.cl  ·  servicios@climatermic.cl  ·  +562 2 372 7585</div>
     <div style="text-align:right;">Guía N° ${numGuia}  ·  ${r.fecha||'—'}</div>
   </div>
 </div>
@@ -2220,87 +2261,126 @@ function cargarLibsPDF(){
   });
 }
 
+async function _prepararPDFCompartir(r){
+  await cargarLibsPDF();
+  var htmlClean=construirHTMLGuia(r);
+
+  // Renderizar el HTML en un iframe oculto para poder capturarlo
+  var iframe=document.createElement('iframe');
+  iframe.style.position='fixed';
+  iframe.style.left='-9999px';
+  iframe.style.width='816px'; // ancho carta a 96dpi
+  iframe.style.height='1056px';
+  document.body.appendChild(iframe);
+  iframe.srcdoc=htmlClean;
+
+  await new Promise(function(resolve){ iframe.onload=resolve; });
+  if(iframe.contentDocument.fonts && iframe.contentDocument.fonts.ready){
+    try{ await iframe.contentDocument.fonts.ready; }catch(e){}
+  }
+  // Esperar a que las fotos (si las hay) terminen de cargar
+  var imgs=iframe.contentDocument.querySelectorAll('img');
+  await Promise.all(Array.prototype.map.call(imgs,function(img){
+    if(img.complete) return Promise.resolve();
+    return new Promise(function(res){ img.onload=img.onerror=res; });
+  }));
+  await new Promise(function(res){ setTimeout(res,300); });
+
+  var paginas=iframe.contentDocument.querySelectorAll('.page');
+  if(!paginas.length) throw new Error('No se encontró contenido para generar el PDF');
+
+  var jsPDFLib=window.jspdf.jsPDF;
+  var pdf=new jsPDFLib({unit:'pt',format:'letter'});
+  var pageW=pdf.internal.pageSize.getWidth();
+  var pageH=pdf.internal.pageSize.getHeight();
+
+  for(var i=0;i<paginas.length;i++){
+    var canvas=await html2canvas(paginas[i],{
+      scale:1.6,           // suficiente nitidez para impresión básica, sin pesar demasiado
+      useCORS:true,
+      backgroundColor:'#ffffff',
+      windowWidth:816,
+    });
+    var imgData=canvas.toDataURL('image/jpeg',0.72); // JPEG comprimido para mantenerlo liviano
+    var imgH=(canvas.height*pageW)/canvas.width;
+    if(i>0) pdf.addPage();
+    pdf.addImage(imgData,'JPEG',0,0,pageW,Math.min(imgH,pageH));
+  }
+
+  document.body.removeChild(iframe);
+
+  var pdfBlob=pdf.output('blob');
+  var numGuia=r.numero_guia||'guia';
+  var nombreArchivo='Guia_Servicio_'+numGuia.replace(/[^a-zA-Z0-9-]/g,'_')+'.pdf';
+  var pdfFile=new File([pdfBlob],nombreArchivo,{type:'application/pdf'});
+  return {pdfBlob:pdfBlob, pdfFile:pdfFile, nombreArchivo:nombreArchivo, numGuia:numGuia, cliente:r.cliente||''};
+}
+
+function _descargarPDFDirecto(prep){
+  var urlDescarga=URL.createObjectURL(prep.pdfBlob);
+  var a=document.createElement('a');
+  a.href=urlDescarga;
+  a.download=prep.nombreArchivo;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(function(){URL.revokeObjectURL(urlDescarga);},2000);
+  alert('PDF descargado. Búscalo en tu carpeta de Descargas para reenviarlo por WhatsApp o correo.');
+}
+
 async function compartirGuiaPDF(r, btnEl){
-  var textoOriginal=btnEl?btnEl.textContent:'';
-  if(btnEl){ btnEl.textContent='⏳ Generando PDF...'; btnEl.disabled=true; }
+  var textoOriginal=btnEl?btnEl.getAttribute('data-texto-original')||btnEl.textContent:'';
+  if(btnEl){ btnEl.setAttribute('data-texto-original', textoOriginal); btnEl.textContent='⏳ Generando PDF...'; btnEl.disabled=true; }
   try{
-    await cargarLibsPDF();
-    var htmlClean=construirHTMLGuia(r);
-
-    // Renderizar el HTML en un iframe oculto para poder capturarlo
-    var iframe=document.createElement('iframe');
-    iframe.style.position='fixed';
-    iframe.style.left='-9999px';
-    iframe.style.width='816px'; // ancho carta a 96dpi
-    iframe.style.height='1056px';
-    document.body.appendChild(iframe);
-    iframe.srcdoc=htmlClean;
-
-    await new Promise(function(resolve){ iframe.onload=resolve; });
-    // Esperar a que las fotos (si las hay) terminen de cargar
-    var imgs=iframe.contentDocument.querySelectorAll('img');
-    await Promise.all(Array.prototype.map.call(imgs,function(img){
-      if(img.complete) return Promise.resolve();
-      return new Promise(function(res){ img.onload=img.onerror=res; });
-    }));
-    await new Promise(function(res){ setTimeout(res,300); });
-
-    var paginas=iframe.contentDocument.querySelectorAll('.page');
-    if(!paginas.length) throw new Error('No se encontró contenido para generar el PDF');
-
-    var jsPDFLib=window.jspdf.jsPDF;
-    var pdf=new jsPDFLib({unit:'pt',format:'letter'});
-    var pageW=pdf.internal.pageSize.getWidth();
-    var pageH=pdf.internal.pageSize.getHeight();
-
-    for(var i=0;i<paginas.length;i++){
-      var canvas=await html2canvas(paginas[i],{
-        scale:1.6,           // suficiente nitidez para impresión básica, sin pesar demasiado
-        useCORS:true,
-        backgroundColor:'#ffffff',
-        windowWidth:816,
-      });
-      var imgData=canvas.toDataURL('image/jpeg',0.72); // JPEG comprimido para mantenerlo liviano
-      var imgH=(canvas.height*pageW)/canvas.width;
-      if(i>0) pdf.addPage();
-      pdf.addImage(imgData,'JPEG',0,0,pageW,Math.min(imgH,pageH));
-    }
-
-    document.body.removeChild(iframe);
-
-    var pdfBlob=pdf.output('blob');
-    var numGuia=r.numero_guia||'guia';
-    var nombreArchivo='Guia_Servicio_'+numGuia.replace(/[^a-zA-Z0-9-]/g,'_')+'.pdf';
-    var pdfFile=new File([pdfBlob],nombreArchivo,{type:'application/pdf'});
-
-    // Intentar compartir de forma nativa (WhatsApp, email, guardar, etc.)
-    if(navigator.canShare && navigator.canShare({files:[pdfFile]})){
-      await navigator.share({
-        files:[pdfFile],
-        title:'Guía de Servicio '+numGuia,
-        text:'Guía de servicio '+numGuia+' - '+(r.cliente||''),
-      });
+    var prep=await _prepararPDFCompartir(r);
+    if(navigator.canShare && navigator.canShare({files:[prep.pdfFile]})){
+      // No se llama a navigator.share() aquí mismo: generar el PDF toma varios segundos
+      // (render + captura de cada página) y para entonces el navegador puede considerar
+      // que ya no hay un "gesto de usuario" reciente, rechazando el share con
+      // "The request is not allowed by the user agent or the platform in the current
+      // context" (confirmado en prueba real en celular). Dejamos el PDF listo y pedimos
+      // un segundo toque, que sí cuenta como gesto fresco para el navegador.
+      window._pdfCompartirListo=prep;
+      if(btnEl){
+        btnEl.textContent='📤 Toca para compartir';
+        btnEl.disabled=false;
+        btnEl.onclick=function(){ compartirGuiaPDFConfirmar(btnEl); };
+      }
     } else {
-      // Sin soporte de compartir: descargar directo
-      var urlDescarga=URL.createObjectURL(pdfBlob);
-      var a=document.createElement('a');
-      a.href=urlDescarga;
-      a.download=nombreArchivo;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      setTimeout(function(){URL.revokeObjectURL(urlDescarga);},2000);
-      alert('PDF descargado. Búscalo en tu carpeta de Descargas para reenviarlo por WhatsApp o correo.');
+      _descargarPDFDirecto(prep);
+      if(btnEl){ btnEl.textContent=textoOriginal; btnEl.disabled=false; }
     }
+  }catch(e){
+    console.error('Error generando PDF compartible:',e);
+    alert('No se pudo generar el PDF para compartir: '+e.message);
+    if(btnEl){ btnEl.textContent=textoOriginal; btnEl.disabled=false; }
+  }
+}
+
+async function compartirGuiaPDFConfirmar(btnEl){
+  var prep=window._pdfCompartirListo;
+  var textoOriginal=btnEl?(btnEl.getAttribute('data-texto-original')||'📤 Compartir guía (WhatsApp / correo)'):'';
+  if(!prep){ return; }
+  try{
+    await navigator.share({
+      files:[prep.pdfFile],
+      title:'Guía de Servicio '+prep.numGuia,
+      text:'Guía de servicio '+prep.numGuia+' - '+prep.cliente,
+    });
   }catch(e){
     if(e && e.name==='AbortError'){
       // Usuario canceló el share sheet, no es un error real
     } else {
-      console.error('Error generando PDF compartible:',e);
-      alert('No se pudo generar el PDF para compartir: '+e.message);
+      console.error('Error al compartir PDF:',e);
+      alert('No se pudo abrir el panel de compartir: '+e.message+'. Se descargará el PDF para que lo puedas reenviar manualmente.');
+      _descargarPDFDirecto(prep);
     }
   } finally {
-    if(btnEl){ btnEl.textContent=textoOriginal; btnEl.disabled=false; }
+    if(btnEl){
+      btnEl.textContent=textoOriginal;
+      btnEl.disabled=false;
+      btnEl.onclick=function(){ compartirGuiaPDF(window._ultimoReporteEnviado, btnEl); };
+    }
   }
 }
 
