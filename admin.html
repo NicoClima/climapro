@@ -2461,6 +2461,40 @@ function limpiarFirma(){if(firmaCtx)firmaCtx.clearRect(0,0,320,110);firmaOk=fals
 // ═══════════════════════════════════════════════════════
 // GENERADOR DE GUÍA DE SERVICIO PDF (impresión navegador)
 // ═══════════════════════════════════════════════════════
+//
+// ⚠️ CONTRATO DE PAGINACIÓN — LEER ANTES DE TOCAR ESTA FUNCIÓN ⚠️
+// Este bloque ya causó el mismo bug DOS VECES (sesión 36): el navegador real
+// que genera el PDF (no WeasyPrint, que se usa solo para pruebas locales)
+// corta tarjetas de equipo y filas de fotos a la mitad entre páginas.
+//
+// Reglas que NO se pueden romper:
+//   1. Página 1 (Información + Resumen + Observaciones + Conformidad/firma)
+//      SIEMPRE debe caber en una sola hoja.
+//   2. Páginas "Equipos Revisados" y "Registro Fotográfico": tantas hojas
+//      como haga falta, pero el salto NUNCA puede caer a mitad de un
+//      equipo-card ni a mitad de una fila de fotos. El footer siempre viaja
+//      pegado al último bloque de cada sección.
+//   3. El encabezado de página (logo + título + N° de guía) se repite en
+//      cada hoja vía <thead> dentro de una <table class="print-repeat-head">.
+//
+// Por qué se rompió (2 causas reales, confirmadas con PDFs de producción):
+//   A) CSS grid/flex en el contenido de un bloque que debe paginar como
+//      unidad NO respeta page-break-inside:avoid en el motor real. Por eso
+//      seccionHTML() y las filas de fotos usan <table>/<tr>/<td>, nunca
+//      display:grid ni display:flex, para el contenido de ítems o fotos.
+//   B) Un <div> con page-break-inside:avoid anidado DENTRO de una única
+//      <td> gigante (la celda del <tbody> que contiene TODOS los equipos o
+//      TODAS las fotos) tampoco se respeta. Por eso cada equipo-card y cada
+//      bloque encabezado+fila-de-fotos vive en su PROPIA <tr> de la tabla
+//      con thead repetible — nunca todos juntos dentro de una sola <tr><td>.
+//   C) Al convertir una fila de fotos a <table>, si la fila tiene menos de
+//      FOTOS_POR_FILA fotos hay que RELLENAR con <td> vacías hasta completar
+//      FOTOS_POR_FILA — si no, table-layout:fixed estira las celdas
+//      presentes y las fotos pierden el tamaño de referencia uniforme.
+//
+// Antes de subir cualquier cambio a esta función a GitHub: correr
+// test_paginacion_guia.js (carpeta del proyecto) y confirmar que pasan
+// todas las reglas. Ver también PAGINACION_REGLAS.md.
 function construirHTMLGuia(r){
   if(!r){alert('No hay reporte para generar');return;}
 
