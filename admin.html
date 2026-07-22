@@ -2517,7 +2517,7 @@ function construirHTMLGuia(r){
 
     return `<div class="equipo-card" style="margin-bottom:6px;">
       <div style="background:${C.oscuro};color:#fff;font-size:9px;font-weight:700;padding:4px 8px;border-radius:4px 4px 0 0;display:flex;justify-content:space-between;align-items:center;">
-        <span>${s.label}${s.ubicacion?' · '+s.ubicacion:''}${s.cantidad>1?' · '+s.cantidad+' unidades':''}</span>
+        <span>${s.label}${s.tipo==='otro'&&s.descripcion?' — '+s.descripcion:(s.ubicacion?' · '+s.ubicacion:'')}${s.cantidad>1?' · '+s.cantidad+' unidades':''}</span>
         <span style="font-size:7.5px;font-weight:500;opacity:0.85;">${total} chequeos${nAl>0?' · '+nAl+' alerta'+(nAl>1?'s':''):''}${nPr>0?' · '+nPr+' problema'+(nPr>1?'s':''):''}</span>
       </div>
       <div style="background:${C.gris1};padding:3px;border-radius:0 0 4px 4px;display:grid;grid-template-columns:1fr 1fr;gap:3px 6px;align-items:start;">
@@ -2692,7 +2692,10 @@ ${(()=>{
     let pillBg=C.greenL,pillFg=C.greenD,pillTxt='Todo OK';
     if(nPr>0){pillBg=C.redL;pillFg=C.redD;pillTxt=nPr+(nPr>1?' problemas':' problema');}
     else if(nAl>0){pillBg=C.amberL;pillFg=C.amberD;pillTxt=nAl+(nAl>1?' alertas':' alerta');}
-    return `<div class="eq-mini" style="padding:3px 7px;margin-bottom:3px;"><div class="eq-mini-name" style="font-size:8.5px;">${s.label}</div><span class="eq-mini-pill" style="background:${pillBg};color:${pillFg};font-size:7px;padding:1px 6px;">${pillTxt}</span></div>`;
+    const detalleMini=s.tipo==='otro'?(s.descripcion||s.ubicacion||''):'';
+    const detalleCorto=detalleMini.length>34?detalleMini.slice(0,34)+'…':detalleMini;
+    const nombreMini=detalleCorto?`${s.label} — ${detalleCorto}`:s.label;
+    return `<div class="eq-mini" style="padding:3px 7px;margin-bottom:3px;"><div class="eq-mini-name" style="font-size:8.5px;">${nombreMini}</div><span class="eq-mini-pill" style="background:${pillBg};color:${pillFg};font-size:7px;padding:1px 6px;">${pillTxt}</span></div>`;
   }).join('');
   return `
   <div class="status-strip" style="background:${statusBg};border:1px solid ${statusBorder};">
@@ -2850,7 +2853,7 @@ ${(()=>{
     for(let i=0;i<itemsArr.length;i+=FOTOS_POR_FILA){
       filas.push(itemsArr.slice(i,i+FOTOS_POR_FILA));
     }
-    const encabezado=`<div class="foto-eq-head">${s.label}${s.ubicacion?' · '+s.ubicacion:''}</div>`;
+    const encabezado=`<div class="foto-eq-head">${s.label}${s.tipo==='otro'&&s.descripcion?' — '+s.descripcion:(s.ubicacion?' · '+s.ubicacion:'')}</div>`;
     filas.forEach((fila,idx)=>{
       const filaHTML=`<div class="foto-grid">${fila.join('')}</div>`;
       if(idx===0){
