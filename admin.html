@@ -2629,7 +2629,7 @@ function construirHTMLGuia(r){
   .foto-page-meta{font-family:'IBM Plex Mono',monospace;font-size:7.5px;color:${C.gris3};}
   .foto-eq-head{background:${C.oscuro};color:#fff;font-size:10px;font-weight:700;
     padding:5px 8px;border-radius:4px;margin:10px 0 6px;}
-  .foto-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:8px;}
+  .foto-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-bottom:8px;}
   .foto-item{}
   .foto-frame{width:100%;aspect-ratio:4/3;border-radius:4px;overflow:hidden;
     border:0.5px solid ${C.gris2};background:${C.blueL};
@@ -2758,11 +2758,15 @@ ${r.req_presup&&r.presup_desc?`<div class="obs-box" style="border-color:#EF9F27;
 
 <!-- PÁGINA 2: EQUIPOS REVISADOS (detalle completo, en su propia página) -->
 <div class="page page-break">
+<table class="print-repeat-head" style="width:100%;border-collapse:collapse;">
+<thead><tr><td style="padding:0;">
 <div class="foto-page-head">
   <div><img src="${LOGO}" style="height:28px;" alt="Climatermic"></div>
   <div style="text-align:center;"><div class="foto-page-title">Equipos Revisados  ·  ${r.cliente||'—'}</div></div>
   <div class="foto-page-meta" style="text-align:right;">Guía N° ${numGuia}<br>${r.fecha||'—'}</div>
 </div>
+</td></tr></thead>
+<tbody><tr><td style="padding:0;">
 ${checklistHTMLPrevias}
 <!-- El último equipo revisado viaja siempre junto con el footer -->
 <div style="page-break-inside:avoid;break-inside:avoid;">
@@ -2775,11 +2779,15 @@ ${checklistHTMLUltima}
   </div>
 </div>
 </div>
+</td></tr></tbody>
+</table>
 </div><!-- fin página 2: equipos revisados -->
 
 <!-- PÁGINA 3: FOTOS -->
 ${secciones.some(s=>(s.fotos||0)>0||(s.fotosItems&&Object.keys(s.fotosItems||{}).length>0))?`
 <div class="page page-break">
+<table class="print-repeat-head" style="width:100%;border-collapse:collapse;">
+<thead><tr><td style="padding:0;">
 <div class="foto-page-head">
   <div>
     <img src="${LOGO}" style="height:28px;" alt="Climatermic">
@@ -2789,50 +2797,74 @@ ${secciones.some(s=>(s.fotos||0)>0||(s.fotosItems&&Object.keys(s.fotosItems||{})
   </div>
   <div class="foto-page-meta" style="text-align:right;">Guía N° ${numGuia}<br>${r.fecha||'—'}</div>
 </div>
+</td></tr></thead>
+<tbody><tr><td style="padding:0;">
 ${(()=>{
-  const bloques=secciones.map(s=>{
-    // Fotos de items con alerta/problema
-    var fotosItemsHTML=(s.items||[]).filter(i=>(i.estado==='alerta'||i.estado==='problema')&&(i.nFotosItem>0||(i.urlsFotos&&i.urlsFotos.length>0))).map(i=>{
+  const FOTOS_POR_FILA=5;
+  // "chunks" = unidades atómicas que nunca se cortan al paginar: cada una es
+  // o bien (encabezado de equipo + su primera fila de fotos) juntos, o bien
+  // una fila de fotos siguiente — así el salto de página solo puede caer
+  // entre filas completas, nunca a mitad de una fila de fotos.
+  const chunks=[];
+  secciones.forEach(s=>{
+    const itemsArr=[];
+    (s.items||[]).filter(i=>(i.estado==='alerta'||i.estado==='problema')&&(i.nFotosItem>0||(i.urlsFotos&&i.urlsFotos.length>0))).forEach(i=>{
       var urls=i.urlsFotos&&i.urlsFotos.length>0?i.urlsFotos:[];
       var bg=i.estado==='alerta'?C.amberD:C.redD;
       if(urls.length>0){
-        return urls.map(url=>`<div class="foto-item">
+        urls.forEach(url=>itemsArr.push(`<div class="foto-item">
           <div class="foto-frame ${i.estado}" style="padding:0;overflow:hidden;">
             <img src="${url}" style="width:100%;height:100%;object-fit:cover;" onerror="this.parentElement.innerHTML='📷'">
           </div>
           <div class="foto-rotulo" style="background:${bg};">${i.item}</div>
-        </div>`).join('');
-      }
-      return `<div class="foto-item">
+        </div>`));
+      } else {
+        itemsArr.push(`<div class="foto-item">
         <div class="foto-frame ${i.estado}" style="flex-direction:column;gap:4px;">
           <span>📷</span><span style="font-size:8px;text-align:center;">${i.item}</span>
         </div>
         <div class="foto-rotulo" style="background:${bg};">${i.item}</div>
-      </div>`;
-    }).join('');
+      </div>`);
+      }
+    });
     // Fotos generales de sección
     var urlsSeccion=s.urlsFotosSeccion&&s.urlsFotosSeccion.length>0?s.urlsFotosSeccion:[];
-    var fotosSeccionHTML=urlsSeccion.length>0
-      ?urlsSeccion.map((url,idx)=>`<div class="foto-item">
+    if(urlsSeccion.length>0){
+      urlsSeccion.forEach((url,idx)=>itemsArr.push(`<div class="foto-item">
           <div class="foto-frame" style="padding:0;overflow:hidden;">
             <img src="${url}" style="width:100%;height:100%;object-fit:cover;" onerror="this.parentElement.innerHTML='📷'">
           </div>
           <div class="foto-rotulo" style="background:${C.oscuro};">Vista general ${urlsSeccion.length>1?'('+(idx+1)+')':''} · ${s.label}</div>
-        </div>`).join('')
-      :(s.fotos||0)>0?`<div class="foto-item">
+        </div>`));
+    } else if((s.fotos||0)>0){
+      itemsArr.push(`<div class="foto-item">
           <div class="foto-frame" style="flex-direction:column;gap:4px;">
             <span>📷</span><span style="font-size:8px;">Vista general</span>
           </div>
           <div class="foto-rotulo" style="background:${C.oscuro};">Vista general · ${s.label}</div>
-        </div>`:'';
-    if(!fotosItemsHTML&&!fotosSeccionHTML) return '';
-    return `<div class="foto-eq-head">${s.label}${s.ubicacion?' · '+s.ubicacion:''}</div>
-      <div class="foto-grid">${fotosItemsHTML}${fotosSeccionHTML}</div>`;
-  }).filter(b=>b);
-  const previos=bloques.slice(0,-1).join('');
-  const ultimo=bloques.length?bloques[bloques.length-1]:'';
+        </div>`);
+    }
+    if(itemsArr.length===0) return;
+    // Partir en filas completas de FOTOS_POR_FILA
+    const filas=[];
+    for(let i=0;i<itemsArr.length;i+=FOTOS_POR_FILA){
+      filas.push(itemsArr.slice(i,i+FOTOS_POR_FILA));
+    }
+    const encabezado=`<div class="foto-eq-head">${s.label}${s.ubicacion?' · '+s.ubicacion:''}</div>`;
+    filas.forEach((fila,idx)=>{
+      const filaHTML=`<div class="foto-grid">${fila.join('')}</div>`;
+      if(idx===0){
+        // Encabezado + primera fila viajan juntos (evita encabezado huérfano)
+        chunks.push(`<div style="page-break-inside:avoid;break-inside:avoid;">${encabezado}${filaHTML}</div>`);
+      } else {
+        chunks.push(`<div style="page-break-inside:avoid;break-inside:avoid;">${filaHTML}</div>`);
+      }
+    });
+  });
+  const previos=chunks.slice(0,-1).join('');
+  const ultimo=chunks.length?chunks[chunks.length-1]:'';
   return `${previos}
-<!-- El último bloque de fotos viaja siempre junto con el footer -->
+<!-- La última fila de fotos viaja siempre junto con el footer -->
 <div style="page-break-inside:avoid;break-inside:avoid;">
 ${ultimo}
 <div class="gs-footer">
@@ -2844,6 +2876,8 @@ ${ultimo}
 </div>
 </div>`;
 })()}
+</td></tr></tbody>
+</table>
 </div><!-- fin página 3 (fotos) -->
 `:''}
 
