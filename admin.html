@@ -1010,7 +1010,8 @@ let cliAdminId=null,chkEditItems=[];
 const FC=['#E1F5EE','#EEEDFE','#E6F1FB','#FAEEDA','#EAF3DE'];
 
 // Tipos de visita que requieren selección de equipos
-const TIPOS_PARCIALES=['Revisión','Emergencia','Visita técnica'];
+// (Mantención preventiva queda como único tipo que sigue revisando TODOS los equipos automáticamente)
+const TIPOS_PARCIALES=['Mantención correctiva','Revisión','Emergencia','Visita técnica'];
 
 function esTipoParcial(){
   return TIPOS_PARCIALES.includes(document.getElementById('sel-tipo').value);
