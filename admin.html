@@ -450,13 +450,13 @@ async function checkLogin(){
             </div>
             <div class="a-grid2">
               <div class="a-field"><label>Cantidad</label><input type="number" id="eq-cantidad" value="1" min="1"></div>
-              <div class="a-field"><label>Ubicación</label><input type="text" id="eq-ubicacion" placeholder="Ej: Cubierta P12"></div>
+              <div class="a-field"><label>Ubicación</label><input type="text" spellcheck="true" id="eq-ubicacion" placeholder="Ej: Cubierta P12"></div>
             </div>
             <div class="a-grid2">
-              <div class="a-field"><label>Marca</label><input type="text" id="eq-marca" placeholder="Ej: Bosch"></div>
-              <div class="a-field"><label>Modelo</label><input type="text" id="eq-modelo" placeholder="Ej: WBN6"></div>
+              <div class="a-field"><label>Marca</label><input type="text" spellcheck="true" id="eq-marca" placeholder="Ej: Bosch"></div>
+              <div class="a-field"><label>Modelo</label><input type="text" spellcheck="true" id="eq-modelo" placeholder="Ej: WBN6"></div>
             </div>
-            <div class="a-field"><label>Descripción</label><textarea id="eq-descripcion" placeholder="Detalles específicos del equipo..."></textarea></div>
+            <div class="a-field"><label>Descripción</label><textarea spellcheck="true" id="eq-descripcion" placeholder="Detalles específicos del equipo..."></textarea></div>
             <button class="btn-purple" style="width:100%;margin-top:4px;" onclick="guardarEquipo()">Guardar equipo</button>
           </div>
         </div>
@@ -483,7 +483,7 @@ async function checkLogin(){
               <div class="a-card-title"><span>Ítems del checklist</span><span style="font-size:11px;color:var(--text3);">Desmarca para desactivar</span></div>
               <div id="chk-items-list"></div>
               <div class="chk-add-row">
-                <input type="text" class="chk-add-input" id="chk-nuevo-item" placeholder="Agregar nuevo ítem personalizado...">
+                <input type="text" spellcheck="true" class="chk-add-input" id="chk-nuevo-item" placeholder="Agregar nuevo ítem personalizado...">
                 <button class="btn-teal-sm" onclick="agregarItemChecklist()">+ Agregar</button>
               </div>
             </div>
@@ -531,12 +531,12 @@ async function checkLogin(){
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">
             <div>
               <label style="font-size:10px;color:var(--text3);font-weight:500;display:block;margin-bottom:3px;">Nombre</label>
-              <input type="text" id="filtro-part-nombre" placeholder="Buscar por nombre..."
+              <input type="text" spellcheck="true" id="filtro-part-nombre" placeholder="Buscar por nombre..."
                 style="width:100%;padding:6px 8px;border-radius:6px;border:0.5px solid var(--gray3);font-size:11px;font-family:var(--font);">
             </div>
             <div>
               <label style="font-size:10px;color:var(--text3);font-weight:500;display:block;margin-bottom:3px;">Dirección</label>
-              <input type="text" id="filtro-part-direccion" placeholder="Buscar por dirección..."
+              <input type="text" spellcheck="true" id="filtro-part-direccion" placeholder="Buscar por dirección..."
                 style="width:100%;padding:6px 8px;border-radius:6px;border:0.5px solid var(--gray3);font-size:11px;font-family:var(--font);">
             </div>
           </div>
@@ -650,7 +650,7 @@ async function checkLogin(){
           <div id="sc-tecnicos" class="sc-grid3"></div>
           <div style="border-top:0.5px solid var(--gray2);margin:14px 0;"></div>
           <div class="sc-section-label">CLIENTES — toca para ver detalle</div>
-          <input type="text" id="sc-buscar-cliente" placeholder="🔎 Buscar cliente por nombre..." oninput="renderListaClientesScorecard()" style="width:100%;padding:8px 10px;margin-bottom:8px;border-radius:var(--radius-sm);border:0.5px solid var(--gray3);font-family:var(--font);font-size:13px;background:var(--white);color:var(--text);">
+          <input type="text" spellcheck="true" id="sc-buscar-cliente" placeholder="🔎 Buscar cliente por nombre..." oninput="renderListaClientesScorecard()" style="width:100%;padding:8px 10px;margin-bottom:8px;border-radius:var(--radius-sm);border:0.5px solid var(--gray3);font-family:var(--font);font-size:13px;background:var(--white);color:var(--text);">
           <div id="sc-lista-clientes"></div>
         </div>
 
@@ -727,9 +727,9 @@ async function checkLogin(){
         </div>
         <div class="a-field" id="agenda-spot-wrap" style="display:none;background:var(--white);border:0.5px solid var(--gray3);border-radius:var(--radius-sm);padding:8px;">
           <label>Nombre del cliente (particular) *</label>
-          <input type="text" id="agenda-spot-nombre" placeholder="Ej: Edificio Las Rosas" style="margin-bottom:8px;">
+          <input type="text" spellcheck="true" id="agenda-spot-nombre" placeholder="Ej: Edificio Las Rosas" style="margin-bottom:8px;">
           <label>Dirección</label>
-          <input type="text" id="agenda-spot-direccion" placeholder="Ej: Av. Providencia 1234">
+          <input type="text" spellcheck="true" id="agenda-spot-direccion" placeholder="Ej: Av. Providencia 1234">
         </div>
         <div class="a-field">
           <label>Técnicos asignados</label>
@@ -742,7 +742,7 @@ async function checkLogin(){
           </div>
           <div id="agenda-tecnicos-check" style="display:flex;flex-direction:column;gap:6px;max-height:160px;overflow-y:auto;border:0.5px solid var(--gray3);border-radius:var(--radius-sm);padding:8px;background:var(--white);"></div>
         </div>
-        <div class="a-field"><label>Notas</label><textarea id="agenda-notas" placeholder="Opcional..."></textarea></div>
+        <div class="a-field"><label>Notas</label><textarea spellcheck="true" id="agenda-notas" placeholder="Opcional..."></textarea></div>
         <button class="btn-purple" style="width:100%;" onclick="crearTareaAgenda()">+ Agregar tarea</button>
       </div>
       <div class="a-card">
@@ -756,9 +756,9 @@ async function checkLogin(){
       <div class="a-card">
         <div class="a-card-title" id="form-cliente-title">Datos del cliente</div>
         <input type="hidden" id="cli-edit-id">
-        <div class="a-field"><label>Nombre *</label><input type="text" id="cli-nombre" placeholder="Ej: Edificio Ciudadano Pezoa"></div>
+        <div class="a-field"><label>Nombre *</label><input type="text" spellcheck="true" id="cli-nombre" placeholder="Ej: Edificio Ciudadano Pezoa"></div>
         <div class="a-grid2">
-          <div class="a-field"><label>RUT</label><input type="text" id="cli-rut" placeholder="12.345.678-9"></div>
+          <div class="a-field"><label>RUT</label><input type="text" spellcheck="true" id="cli-rut" placeholder="12.345.678-9"></div>
           <div class="a-field"><label>Tipo contrato</label>
             <select id="cli-contrato">
               <option>Anual</option><option>Semestral</option><option>Trimestral</option><option>Por evento</option>
@@ -777,12 +777,12 @@ async function checkLogin(){
             <option value="por_evento">Por evento (sin alerta)</option>
           </select>
         </div>
-        <div class="a-field"><label>Dirección</label><input type="text" id="cli-dir" placeholder="Calle y número"></div>
+        <div class="a-field"><label>Dirección</label><input type="text" spellcheck="true" id="cli-dir" placeholder="Calle y número"></div>
         <div class="a-grid2">
-          <div class="a-field"><label>Comuna</label><input type="text" id="cli-comuna" placeholder="Estación Central"></div>
-          <div class="a-field"><label>Ciudad</label><input type="text" id="cli-ciudad" placeholder="Santiago"></div>
+          <div class="a-field"><label>Comuna</label><input type="text" spellcheck="true" id="cli-comuna" placeholder="Estación Central"></div>
+          <div class="a-field"><label>Ciudad</label><input type="text" spellcheck="true" id="cli-ciudad" placeholder="Santiago"></div>
         </div>
-        <div class="a-field"><label>Contacto</label><input type="text" id="cli-contacto" placeholder="Nombre y cargo"></div>
+        <div class="a-field"><label>Contacto</label><input type="text" spellcheck="true" id="cli-contacto" placeholder="Nombre y cargo"></div>
         <div class="a-grid2">
           <div class="a-field"><label>Teléfono</label><input type="tel" id="cli-tel" placeholder="+56 9..."></div>
           <div class="a-field"><label>Email</label><input type="email" id="cli-email" placeholder="correo@..."></div>
@@ -802,7 +802,7 @@ async function checkLogin(){
           Los técnicos <strong>activos</strong> aparecen en el selector del formulario de visita. Desactivar a alguien no borra ni afecta las guías que ya generó — solo deja de aparecer como opción para nuevas visitas.
         </div>
         <div style="display:flex;gap:8px;margin-bottom:14px;">
-          <input type="text" id="tec-nombre-nuevo" placeholder="Nombre del nuevo técnico (ej: Juan P.)" style="flex:1;padding:9px 11px;border-radius:var(--radius-sm);border:0.5px solid var(--gray3);font-family:var(--font);font-size:13px;background:var(--white);color:var(--text);" onkeydown="if(event.key==='Enter')agregarTecnico()">
+          <input type="text" spellcheck="true" id="tec-nombre-nuevo" placeholder="Nombre del nuevo técnico (ej: Juan P.)" style="flex:1;padding:9px 11px;border-radius:var(--radius-sm);border:0.5px solid var(--gray3);font-family:var(--font);font-size:13px;background:var(--white);color:var(--text);" onkeydown="if(event.key==='Enter')agregarTecnico()">
           <button class="btn-purple" onclick="agregarTecnico()">+ Agregar</button>
         </div>
         <div id="tec-lista"></div>
@@ -826,13 +826,13 @@ async function checkLogin(){
     </div>
     <div class="a-grid2">
       <div class="a-field"><label>Cantidad</label><input type="number" id="edit-eq-cantidad" min="1"></div>
-      <div class="a-field"><label>Ubicación</label><input type="text" id="edit-eq-ubicacion"></div>
+      <div class="a-field"><label>Ubicación</label><input type="text" spellcheck="true" id="edit-eq-ubicacion"></div>
     </div>
     <div class="a-grid2">
-      <div class="a-field"><label>Marca</label><input type="text" id="edit-eq-marca"></div>
-      <div class="a-field"><label>Modelo</label><input type="text" id="edit-eq-modelo"></div>
+      <div class="a-field"><label>Marca</label><input type="text" spellcheck="true" id="edit-eq-marca"></div>
+      <div class="a-field"><label>Modelo</label><input type="text" spellcheck="true" id="edit-eq-modelo"></div>
     </div>
-    <div class="a-field"><label>Descripción</label><textarea id="edit-eq-descripcion"></textarea></div>
+    <div class="a-field"><label>Descripción</label><textarea spellcheck="true" id="edit-eq-descripcion"></textarea></div>
     <div style="display:flex;gap:8px;margin-top:10px;">
       <button class="btn-purple" style="flex:1;" onclick="actualizarEquipo()">Guardar cambios</button>
       <button class="btn-outline" onclick="cerrarModalEquipo()">Cancelar</button>
@@ -1459,7 +1459,7 @@ function abrirEdicionGuia(){
   </div>`;
 
   html+=`<div class="a-grid2" style="margin-bottom:8px;">
-    <div class="a-field"><label>Técnico</label><input type="text" id="edit-tecnico" value="${(r.tecnico||'').replace(/"/g,'&quot;')}"></div>
+    <div class="a-field"><label>Técnico</label><input type="text" spellcheck="true" id="edit-tecnico" value="${(r.tecnico||'').replace(/"/g,'&quot;')}"></div>
     <div class="a-field"><label>Fecha</label><input type="date" id="edit-fecha" value="${r.fecha||''}"></div>
   </div>
   <div class="a-field" style="margin-bottom:8px;">
@@ -1481,7 +1481,7 @@ function abrirEdicionGuia(){
             <option value="alerta" ${i.estado==='alerta'||i.estado==='al'?'selected':''}>⚠️ Alerta</option>
             <option value="problema" ${i.estado==='problema'||i.estado==='pr'?'selected':''}>❌ Problema</option>
           </select>
-          <input type="text" id="edit-obs-${si}-${ii}" placeholder="Observación..." value="${(i.obs||'').replace(/"/g,'&quot;')}" style="flex:1;font-size:11px;padding:4px 8px;border-radius:6px;border:0.5px solid var(--gray3);">
+          <input type="text" spellcheck="true" id="edit-obs-${si}-${ii}" placeholder="Observación..." value="${(i.obs||'').replace(/"/g,'&quot;')}" style="flex:1;font-size:11px;padding:4px 8px;border-radius:6px;border:0.5px solid var(--gray3);">
         </div>
         ${_renderFotosItemHTML(si,ii)}
       </div>`;
@@ -1490,13 +1490,13 @@ function abrirEdicionGuia(){
     html+='</div>';
   });
 
-  html+=`<div class="a-field" style="margin-bottom:8px;"><label>Observaciones generales</label><textarea id="edit-obs-general" rows="2">${r.obs_general||''}</textarea></div>`;
+  html+=`<div class="a-field" style="margin-bottom:8px;"><label>Observaciones generales</label><textarea spellcheck="true" id="edit-obs-general" rows="2">${r.obs_general||''}</textarea></div>`;
   html+=`<div class="a-field" style="margin-bottom:8px;">
     <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="edit-req-presup" ${r.req_presup?'checked':''} style="width:auto;"> Requiere presupuesto</label>
-    <textarea id="edit-presup-desc" rows="2" placeholder="Descripción del presupuesto...">${r.presup_desc||''}</textarea>
+    <textarea spellcheck="true" id="edit-presup-desc" rows="2" placeholder="Descripción del presupuesto...">${r.presup_desc||''}</textarea>
   </div>`;
-  html+=`<div class="a-field" style="margin-bottom:8px;"><label>Nota de registro</label><textarea id="edit-nota-registro" rows="2">${r.nota_registro||''}</textarea></div>`;
-  html+=`<div class="a-field" style="margin-bottom:10px;"><label>Recepcionado por</label><input type="text" id="edit-recepcionado-por" value="${(r.recepcionado_por||'').replace(/"/g,'&quot;')}"></div>`;
+  html+=`<div class="a-field" style="margin-bottom:8px;"><label>Nota de registro</label><textarea spellcheck="true" id="edit-nota-registro" rows="2">${r.nota_registro||''}</textarea></div>`;
+  html+=`<div class="a-field" style="margin-bottom:10px;"><label>Recepcionado por</label><input type="text" spellcheck="true" id="edit-recepcionado-por" value="${(r.recepcionado_por||'').replace(/"/g,'&quot;')}"></div>`;
 
   if(r.firma_imagen){
     html+=`<div style="font-size:11px;color:var(--text3);margin-bottom:6px;">✍️ Firma (no editable)</div>
@@ -2002,7 +2002,7 @@ function _tecRowHtml(t, idx, total){
         <button class="btn-outline" style="padding:1px 6px;font-size:9px;line-height:1.4;${idx===0?'opacity:.3;pointer-events:none;':''}" onclick="moverTecnico('${t.id}',-1)">▲</button>
         <button class="btn-outline" style="padding:1px 6px;font-size:9px;line-height:1.4;${idx===total-1?'opacity:.3;pointer-events:none;':''}" onclick="moverTecnico('${t.id}',1)">▼</button>
       </div>
-      <input type="text" value="${nombreSeguro}" style="flex:1;padding:6px 8px;border-radius:var(--radius-sm);border:0.5px solid var(--gray3);font-family:var(--font);font-size:13px;background:var(--white);color:var(--text);" onchange="renombrarTecnico('${t.id}', this.value)">
+      <input type="text" spellcheck="true" value="${nombreSeguro}" style="flex:1;padding:6px 8px;border-radius:var(--radius-sm);border:0.5px solid var(--gray3);font-family:var(--font);font-size:13px;background:var(--white);color:var(--text);" onchange="renombrarTecnico('${t.id}', this.value)">
       <span class="sc-pill ${activo?'sc-pill-ok':'sc-pill-late'}" style="cursor:pointer;user-select:none;" onclick="toggleTecnicoActivo('${t.id}', ${!activo})">${activo?'Activo':'Inactivo'}</span>
     </div>`;
 }
