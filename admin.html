@@ -2463,7 +2463,7 @@ function limpiarFirma(){if(firmaCtx)firmaCtx.clearRect(0,0,320,110);firmaOk=fals
 // ═══════════════════════════════════════════════════════
 //
 // ⚠️ CONTRATO DE PAGINACIÓN — LEER ANTES DE TOCAR ESTA FUNCIÓN ⚠️
-// Este bloque ya causó el mismo bug DOS VECES (sesión 36): el navegador real
+// Este bloque ya causó el mismo bug TRES VECES (sesión 36): el navegador real
 // que genera el PDF (no WeasyPrint, que se usa solo para pruebas locales)
 // corta tarjetas de equipo y filas de fotos a la mitad entre páginas.
 //
@@ -2475,22 +2475,30 @@ function limpiarFirma(){if(firmaCtx)firmaCtx.clearRect(0,0,320,110);firmaOk=fals
 //      equipo-card ni a mitad de una fila de fotos. El footer siempre viaja
 //      pegado al último bloque de cada sección.
 //   3. El encabezado de página (logo + título + N° de guía) se repite en
-//      cada hoja vía <thead> dentro de una <table class="print-repeat-head">.
+//      cada hoja.
 //
-// Por qué se rompió (2 causas reales, confirmadas con PDFs de producción):
+// Por qué se rompió (3 causas reales, confirmadas con PDFs de producción):
 //   A) CSS grid/flex en el contenido de un bloque que debe paginar como
 //      unidad NO respeta page-break-inside:avoid en el motor real. Por eso
 //      seccionHTML() y las filas de fotos usan <table>/<tr>/<td>, nunca
 //      display:grid ni display:flex, para el contenido de ítems o fotos.
 //   B) Un <div> con page-break-inside:avoid anidado DENTRO de una única
 //      <td> gigante (la celda del <tbody> que contiene TODOS los equipos o
-//      TODAS las fotos) tampoco se respeta. Por eso cada equipo-card y cada
-//      bloque encabezado+fila-de-fotos vive en su PROPIA <tr> de la tabla
-//      con thead repetible — nunca todos juntos dentro de una sola <tr><td>.
+//      TODAS las fotos) tampoco se respeta.
 //   C) Al convertir una fila de fotos a <table>, si la fila tiene menos de
 //      FOTOS_POR_FILA fotos hay que RELLENAR con <td> vacías hasta completar
 //      FOTOS_POR_FILA — si no, table-layout:fixed estira las celdas
 //      presentes y las fotos pierden el tamaño de referencia uniforme.
+//   D) LA CAUSA DEFINITIVA: ni siquiera dándole a cada equipo su propia <tr>
+//      dentro de la <table> con <thead> repetible se resolvió — el navegador
+//      real sigue sin respetar avoid en absoluto cuando el contenido está
+//      dentro de una tabla que usa thead para repetirse en cada hoja. Por
+//      eso esta función YA NO usa <thead>/thead-repeat en estas 2 páginas.
+//      En su lugar calcula de antemano (agruparEnPaginas + estimarAltoEquipoCard,
+//      justo antes de esta función) cuántos equipos/fotos caben en cada hoja
+//      y arma cada página como un <div class="page"> independiente con el
+//      encabezado copiado a mano — igual que la página 1, que nunca falló.
+//      NO reintroducir <table class="print-repeat-head"> para estas páginas.
 //
 // Antes de subir cualquier cambio a esta función a GitHub: correr
 // test_paginacion_guia.js (carpeta del proyecto) y confirmar que pasan
@@ -2571,8 +2579,46 @@ function construirHTMLGuia(r){
   }
 
   const checklistBloques=secciones.map(s=>seccionHTML(s));
-  const checklistHTMLPrevias=checklistBloques.slice(0,-1).join('');
-  const checklistHTMLUltima=checklistBloques.length?checklistBloques[checklistBloques.length-1]:'';
+
+  // ── PAGINACIÓN EXPLÍCITA (páginas "Equipos Revisados" y "Registro Fotográfico") ──
+  // Historial (sesión 36): se intentó dos veces resolver el corte de página a
+  // mitad de un equipo/fila de fotos confiando en page-break-inside:avoid —
+  // primero con CSS grid, luego con una <table><tr> propia por bloque. Las dos
+  // veces el navegador real (confirmado con capturas de producción) ignoró el
+  // avoid. La causa específica: avoid no se respeta cuando el contenido vive
+  // dentro de una <table> que usa <thead> para repetirse en cada hoja — y la
+  // página 1 nunca tuvo este problema justamente porque NO usa esa tabla, es
+  // un <div class="page"> suelto con el encabezado propio.
+  // Por eso aquí no se depende de avoid ni de thead-repeat: se calcula de
+  // antemano cuánto mide cada bloque (en px) y se arma cada página como un
+  // <div class="page"> independiente, con el encabezado copiado a mano en
+  // cada una — igual que la página 1, que siempre funcionó bien.
+  const ALTO_HOJA_UTIL_PX=750; // alto útil conservador por hoja (ya incluye margen de seguridad + espacio reservado para el footer)
+
+  function agruparEnPaginas(bloques){
+    // bloques: [{html, alto}]. Devuelve un array de páginas, cada una un array de bloques.
+    const paginas=[];
+    let actual=[], altoActual=0;
+    bloques.forEach(b=>{
+      if(altoActual+b.alto>ALTO_HOJA_UTIL_PX && actual.length>0){
+        paginas.push(actual);
+        actual=[]; altoActual=0;
+      }
+      actual.push(b);
+      altoActual+=b.alto;
+    });
+    if(actual.length) paginas.push(actual);
+    return paginas;
+  }
+
+  function estimarAltoEquipoCard(s){
+    // Estimación conservadora (sesgada hacia arriba a propósito): mejor usar
+    // una hoja de más que arriesgarse a que un equipo se corte a la mitad.
+    const items=s.items||[];
+    const nFilas=Math.ceil(items.length/2);
+    const nConObs=items.filter(i=>i.obs).length;
+    return 26/*encabezado del equipo*/ + 8/*padding de la tabla*/ + nFilas*20 + nConObs*16 + 10/*margen inferior*/;
+  }
 
   const html=`<!DOCTYPE html>
 <html lang="es">
@@ -2803,63 +2849,45 @@ ${r.req_presup&&r.presup_desc?`<div class="obs-box" style="border-color:#EF9F27;
 
 </div><!-- fin página 1: Información + Observaciones + Conformidad + firma, siempre juntos -->
 
-<!-- PÁGINA 2: EQUIPOS REVISADOS (detalle completo, en su propia página) -->
-<div class="page page-break">
-<table class="print-repeat-head" style="width:100%;border-collapse:collapse;">
-<thead><tr><td style="padding:0;">
-<div class="foto-page-head">
+<!-- PÁGINA(S) 2: EQUIPOS REVISADOS — paginación explícita, ver nota arriba.
+     Tantas hojas <div class="page"> como haga falta según la altura
+     calculada de cada equipo-card; cada hoja lleva su propio encabezado
+     copiado (no un <thead> compartido) para no depender de avoid. -->
+${(()=>{
+  const bloquesEquipos=checklistBloques.map((html,idx)=>({html, alto: estimarAltoEquipoCard(secciones[idx])}));
+  const paginasEquipos=agruparEnPaginas(bloquesEquipos);
+  const encabezadoEquipos=`<div class="foto-page-head">
   <div><img src="${LOGO}" style="height:28px;" alt="Climatermic"></div>
   <div style="text-align:center;"><div class="foto-page-title">Equipos Revisados  ·  ${r.cliente||'—'}</div></div>
   <div class="foto-page-meta" style="text-align:right;">Guía N° ${numGuia}<br>${r.fecha||'—'}</div>
-</div>
-</td></tr></thead>
-<tbody>
-<!-- Cada equipo va en su propia fila de tabla (no todos dentro de una sola
-     celda gigante): así, si un equipo no cabe entero en lo que queda de
-     página, el navegador mueve la fila COMPLETA a la siguiente — el mismo
-     mecanismo, ya probado, con el que se repite el encabezado (thead).
-     Un <div> con page-break-inside:avoid anidado dentro de una única celda
-     que debe fragmentarse no es respetado de forma confiable; una <tr> de
-     tabla propia sí lo es. -->
-${checklistBloques.slice(0,-1).map(b=>`<tr style="page-break-inside:avoid;break-inside:avoid;"><td style="padding:0;">${b}</td></tr>`).join('')}
-<!-- El último equipo revisado viaja siempre junto con el footer, en su propia fila -->
-<tr style="page-break-inside:avoid;break-inside:avoid;"><td style="padding:0;">
-${checklistHTMLUltima}
-<div class="gs-footer">
+</div>`;
+  const footerHTML=`<div class="gs-footer">
   <div class="footer-bar"></div>
   <div class="footer-content">
     <div><span class="footer-bold">Ingeniería y Servicios Climatermic</span><br>www.climatermic.cl  ·  servicios@climatermic.cl  ·  +562 2 372 7585</div>
     <div style="text-align:right;">Guía N° ${numGuia}  ·  ${r.fecha||'—'}</div>
   </div>
-</div>
-</td></tr>
-</tbody>
-</table>
-</div><!-- fin página 2: equipos revisados -->
+</div>`;
+  return paginasEquipos.map((pag,idx)=>{
+    const esUltima=idx===paginasEquipos.length-1;
+    return `<div class="page page-break">
+${encabezadoEquipos}
+${pag.map(b=>b.html).join('')}
+${esUltima?footerHTML:''}
+</div>`;
+  }).join('');
+})()}
+<!-- fin página(s) equipos revisados -->
 
-<!-- PÁGINA 3: FOTOS -->
-${secciones.some(s=>(s.fotos||0)>0||(s.fotosItems&&Object.keys(s.fotosItems||{}).length>0))?`
-<div class="page page-break">
-<table class="print-repeat-head" style="width:100%;border-collapse:collapse;">
-<thead><tr><td style="padding:0;">
-<div class="foto-page-head">
-  <div>
-    <img src="${LOGO}" style="height:28px;" alt="Climatermic">
-  </div>
-  <div style="text-align:center;">
-    <div class="foto-page-title">Registro Fotográfico  ·  ${r.cliente||'—'}</div>
-  </div>
-  <div class="foto-page-meta" style="text-align:right;">Guía N° ${numGuia}<br>${r.fecha||'—'}</div>
-</div>
-</td></tr></thead>
-<tbody>
+<!-- PÁGINA(S) 3: FOTOS — paginación explícita, ver nota arriba. -->
 ${(()=>{
   const FOTOS_POR_FILA=5;
-  // "chunks" = unidades atómicas que nunca se cortan al paginar: cada una es
-  // o bien (encabezado de equipo + su primera fila de fotos) juntos, o bien
-  // una fila de fotos siguiente — así el salto de página solo puede caer
-  // entre filas completas, nunca a mitad de una fila de fotos.
-  const chunks=[];
+  const FOTO_ROW_ALTO_PX=130, FOTO_HEADER_ALTO_PX=26;
+  // "bloquesFotos" = unidades atómicas con su alto estimado: cada una es o
+  // bien (encabezado de equipo + su primera fila de fotos) juntos, o bien
+  // una fila de fotos siguiente — se agrupan en páginas con agruparEnPaginas,
+  // igual que los equipo-cards.
+  const bloquesFotos=[];
   secciones.forEach(s=>{
     const itemsArr=[];
     (s.items||[]).filter(i=>(i.estado==='alerta'||i.estado==='problema')&&(i.nFotosItem>0||(i.urlsFotos&&i.urlsFotos.length>0))).forEach(i=>{
@@ -2919,35 +2947,37 @@ ${(()=>{
       }
       const filaHTML=`<table style="width:100%;border-collapse:collapse;table-layout:fixed;"><tbody><tr style="page-break-inside:avoid;break-inside:avoid;">${tdsHTML}</tr></tbody></table>`;
       if(idx===0){
-        // Encabezado + primera fila viajan juntos (evita encabezado huérfano)
-        chunks.push(`<div style="page-break-inside:avoid;break-inside:avoid;">${encabezado}${filaHTML}</div>`);
+        // Encabezado + primera fila viajan juntas como un mismo bloque
+        bloquesFotos.push({html:`${encabezado}${filaHTML}`, alto: FOTO_HEADER_ALTO_PX+FOTO_ROW_ALTO_PX});
       } else {
-        chunks.push(`<div style="page-break-inside:avoid;break-inside:avoid;">${filaHTML}</div>`);
+        bloquesFotos.push({html:filaHTML, alto: FOTO_ROW_ALTO_PX});
       }
     });
   });
-  // Cada chunk (encabezado+primera fila, o fila siguiente) en su propia
-  // <tr> de tabla — igual que en "Equipos Revisados": una fila de tabla
-  // completa sí viaja atómica de forma confiable al paginar; un <div> con
-  // page-break-inside:avoid anidado dentro de una única celda gigante no.
-  const filasPrevias=chunks.slice(0,-1).map(c=>`<tr style="page-break-inside:avoid;break-inside:avoid;"><td style="padding:0;">${c}</td></tr>`).join('');
-  const ultimo=chunks.length?chunks[chunks.length-1]:'';
-  const filaFinal=`<tr style="page-break-inside:avoid;break-inside:avoid;"><td style="padding:0;">
-${ultimo}
-<div class="gs-footer">
+  if(bloquesFotos.length===0) return '';
+  const paginasFotos=agruparEnPaginas(bloquesFotos);
+  const encabezadoFotos=`<div class="foto-page-head">
+  <div><img src="${LOGO}" style="height:28px;" alt="Climatermic"></div>
+  <div style="text-align:center;"><div class="foto-page-title">Registro Fotográfico  ·  ${r.cliente||'—'}</div></div>
+  <div class="foto-page-meta" style="text-align:right;">Guía N° ${numGuia}<br>${r.fecha||'—'}</div>
+</div>`;
+  const footerHTML=`<div class="gs-footer">
   <div class="footer-bar"></div>
   <div class="footer-content">
     <div><span class="footer-bold">Ingeniería y Servicios Climatermic</span><br>www.climatermic.cl  ·  servicios@climatermic.cl  ·  +562 2 372 7585</div>
     <div style="text-align:right;">Guía N° ${numGuia}  ·  ${r.fecha||'—'}</div>
   </div>
-</div>
-</td></tr>`;
-  return filasPrevias+filaFinal;
+</div>`;
+  return paginasFotos.map((pag,idx)=>{
+    const esUltima=idx===paginasFotos.length-1;
+    return `<div class="page page-break">
+${encabezadoFotos}
+${pag.map(b=>b.html).join('')}
+${esUltima?footerHTML:''}
+</div>`;
+  }).join('');
 })()}
-</tbody>
-</table>
-</div><!-- fin página 3 (fotos) -->
-`:''}
+<!-- fin página(s) fotos -->
 
 <scr'+'ipt>window.onload=function(){window.print();}<\/scr'+'ipt>
 </body></html>`;
