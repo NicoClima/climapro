@@ -239,6 +239,9 @@ body{font-family:var(--font);background:#e0e0dc;display:flex;align-items:flex-st
 .cliente-alerta{font-size:11px;font-weight:500;margin-top:2px;}
 .eq-row{display:flex;align-items:flex-start;gap:8px;padding:10px 12px;border-bottom:0.5px solid var(--gray2);}
 .eq-row:last-child{border-bottom:none;}
+.eq-order-btns{display:flex;flex-direction:column;gap:2px;flex-shrink:0;margin-top:2px;}
+.eq-order-btn{width:22px;height:18px;padding:0;border-radius:5px;border:0.5px solid var(--gray3);background:var(--white);color:var(--text2);font-size:9px;line-height:1;cursor:pointer;font-family:var(--font);}
+.eq-order-btn:disabled{opacity:.3;cursor:default;}
 .loading-sm{font-size:13px;color:var(--text3);text-align:center;padding:20px;}
 .empty-sm{font-size:13px;color:var(--text3);text-align:center;padding:20px;}
 .success-msg{background:var(--green-light);border-radius:var(--radius-sm);padding:8px 12px;font-size:13px;color:var(--green-dark);margin-bottom:10px;display:none;}
@@ -1735,14 +1738,23 @@ function onClienteAdminSelChange(sel){
   }
 }
 
+let _equiposAdminList=[];
+
 async function cargarEquiposAdmin(id){
   const c=document.getElementById('lista-equipos');c.innerHTML='<div class="loading-sm">⏳ Cargando...</div>';
   try{
-    const eqs=await sbGet('equipos',`cliente_id=eq.${id}&order=tipo.asc`);
-    if(!eqs.length){c.innerHTML='<div class="empty-sm">Sin equipos. Agrega el primero abajo.</div>';return;}
-    c.innerHTML=eqs.map(e=>{
-      const t=TIPOS[e.tipo]||{icon:'🔧',label:e.tipo,color:'#f5f5f0'};
-      return`<div class="eq-row">
+    _equiposAdminList=await sbGet('equipos',`cliente_id=eq.${id}&order=orden.asc.nullslast,ubicacion.asc,tipo.asc`);
+    renderEquiposAdmin(id);
+  }catch(e){c.innerHTML=`<div class="empty-sm">⚠️ ${e.message}</div>`;}
+}
+
+function _eqRowHtml(e, idx, total, cid){
+  const t=TIPOS[e.tipo]||{icon:'🔧',label:e.tipo,color:'#f5f5f0'};
+  return`<div class="eq-row">
+        <div class="eq-order-btns">
+          <button type="button" class="eq-order-btn" ${idx===0?'disabled':''} onclick="moverEquipoAdmin('${e.id}',-1)">▲</button>
+          <button type="button" class="eq-order-btn" ${idx===total-1?'disabled':''} onclick="moverEquipoAdmin('${e.id}',1)">▼</button>
+        </div>
         <div style="width:30px;height:30px;border-radius:8px;background:${t.color};display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0;">${t.icon}</div>
         <div style="flex:1;min-width:0;">
           <div style="font-size:13px;font-weight:500;">${t.label}</div>
@@ -1751,11 +1763,37 @@ async function cargarEquiposAdmin(id){
         </div>
         <div style="display:flex;gap:4px;flex-shrink:0;">
           <button class="btn-edit" onclick="abrirModalEquipo('${e.id}','${e.tipo}','${e.cantidad||1}','${(e.ubicacion||'').replace(/'/g,"\\'")}','${(e.marca||'').replace(/'/g,"\\'")}','${(e.modelo||'').replace(/'/g,"\\'")}','${(e.descripcion||'').replace(/'/g,"\\'")}')">✏️</button>
-          <button class="btn-danger" onclick="eliminarEq('${e.id}','${id}')">🗑️</button>
+          <button class="btn-danger" onclick="eliminarEq('${e.id}','${cid}')">🗑️</button>
         </div>
       </div>`;
-    }).join('');
-  }catch(e){c.innerHTML=`<div class="empty-sm">⚠️ ${e.message}</div>`;}
+}
+
+function renderEquiposAdmin(cid){
+  const c=document.getElementById('lista-equipos');
+  if(!_equiposAdminList.length){c.innerHTML='<div class="empty-sm">Sin equipos. Agrega el primero abajo.</div>';return;}
+  c.innerHTML=_equiposAdminList.map((e,i)=>_eqRowHtml(e,i,_equiposAdminList.length,cid)).join('');
+}
+
+// Mismo patrón que moverTecnico(): intercambia el campo `orden` entre dos
+// filas adyacentes. Si el cliente nunca tuvo `orden` asignado (equipos
+// históricos, columna recién agregada), primero se numera todo según el
+// orden en pantalla (hoy: ubicación/tipo) antes de hacer el intercambio,
+// para que las flechas queden funcionando desde el primer clic.
+async function moverEquipoAdmin(id, direccion){
+  const idx=_equiposAdminList.findIndex(e=>e.id===id);
+  const otroIdx=idx+direccion;
+  if(idx<0||otroIdx<0||otroIdx>=_equiposAdminList.length)return;
+  try{
+    if(_equiposAdminList.some(e=>e.orden==null)){
+      await Promise.all(_equiposAdminList.map((e,i)=>{ e.orden=(i+1)*10; return sbPatch('equipos',e.id,{orden:e.orden}); }));
+    }
+    const a=_equiposAdminList[idx], b=_equiposAdminList[otroIdx];
+    const ordenA=a.orden, ordenB=b.orden;
+    await Promise.all([sbPatch('equipos',a.id,{orden:ordenB}),sbPatch('equipos',b.id,{orden:ordenA})]);
+    a.orden=ordenB; b.orden=ordenA;
+    _equiposAdminList.sort((x,y)=>(x.orden||0)-(y.orden||0));
+    renderEquiposAdmin(cliAdminId);
+  }catch(e){alert('Error al reordenar: '+e.message);}
 }
 
 async function guardarEquipo(){

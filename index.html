@@ -78,6 +78,9 @@ body{font-family:var(--font);background:#e0e0dc;display:flex;align-items:flex-st
 .eq-detail{font-size:11px;color:var(--text3);margin-top:1px;}
 .eq-desc{font-size:11px;color:var(--teal-dark);margin-top:2px;font-style:italic;}
 .eq-badge{font-size:10px;padding:2px 8px;border-radius:10px;background:var(--teal-light);color:var(--teal-dark);font-weight:500;margin-left:auto;flex-shrink:0;}
+.eq-order-btns{display:flex;flex-direction:column;gap:2px;flex-shrink:0;}
+.eq-order-btn{width:22px;height:18px;padding:0;border-radius:5px;border:0.5px solid var(--gray3);background:var(--white);color:var(--text2);font-size:9px;line-height:1;cursor:pointer;}
+.eq-order-btn:disabled{opacity:.3;cursor:default;}
 .agw-item{display:flex;align-items:flex-start;gap:10px;padding:10px 0;border-bottom:0.5px solid var(--gray2);cursor:pointer;}
 .agw-item:last-child{border-bottom:none;}
 .agw-item:active{opacity:0.7;}
@@ -677,6 +680,10 @@ function renderSelEquipos(){
   cont.innerHTML=equiposCli.map((e,idx)=>{
     const t=TIPOS[e.tipo]||{icon:'🔧',label:e.tipo,color:'#f5f5f0'};
     return`<div class="eq-sel-item" onclick="toggleEquipoSel(${idx})">
+      <div class="eq-order-btns" onclick="event.stopPropagation()">
+        <button type="button" class="eq-order-btn" ${idx===0?'disabled':''} onclick="event.stopPropagation();moverEquipoOrden(${idx},-1)">▲</button>
+        <button type="button" class="eq-order-btn" ${idx===equiposCli.length-1?'disabled':''} onclick="event.stopPropagation();moverEquipoOrden(${idx},1)">▼</button>
+      </div>
       <input type="checkbox" class="eq-sel-cb" id="eq-sel-${idx}" onchange="toggleEquipoSel(${idx},true)">
       <div class="eq-sel-icon" style="background:${t.color}">${t.icon}</div>
       <div style="flex:1;">
@@ -686,6 +693,95 @@ function renderSelEquipos(){
       </div>
     </div>`;
   }).join('');
+}
+
+// Lista de solo-vista (visitas no parciales, hoy: Mantención preventiva) con
+// las mismas flechas de reordenamiento — comparte moverEquipoOrden() con el
+// selector de arriba.
+function renderEquiposPreviewList(){
+  const cont=document.getElementById('equipos-preview-list');
+  if(!cont) return;
+  cont.innerHTML=equiposCli.map(function(e,idx){
+    var t=TIPOS[e.tipo]||{icon:'🔧',label:e.tipo,color:'#f5f5f0'};
+    return'<div class="eq-item">'
+      +'<div class="eq-order-btns">'
+        +'<button type="button" class="eq-order-btn" '+(idx===0?'disabled':'')+' onclick="moverEquipoOrden('+idx+',-1)">▲</button>'
+        +'<button type="button" class="eq-order-btn" '+(idx===equiposCli.length-1?'disabled':'')+' onclick="moverEquipoOrden('+idx+',1)">▼</button>'
+      +'</div>'
+      +'<div class="eq-icon" style="background:'+t.color+'">'+t.icon+'</div>'
+      +'<div><div class="eq-name">'+t.label+'</div>'
+      +'<div class="eq-detail">'+e.cantidad+' unidad'+(e.cantidad>1?'es':'')+' · '+(e.ubicacion||'—')+(e.marca?' · '+e.marca:'')+'</div>'
+      +(e.descripcion?'<div class="eq-desc">'+e.descripcion+'</div>':'')
+      +'</div><span class="eq-badge">Asignado</span></div>';
+  }).join('');
+}
+
+// Reordena equiposCli en memoria (afecta el orden de los pasos del checklist
+// y, por lo tanto, el orden en que aparecen los equipos en la guía impresa),
+// y guarda el cambio en Supabase de forma best-effort (equipos.orden) — si
+// falla o está offline, el orden igual queda aplicado para esta visita.
+async function moverEquipoOrden(idx, direccion){
+  var otroIdx = idx + direccion;
+  if(otroIdx<0 || otroIdx>=equiposCli.length) return;
+  window._ordenEquiposTocadoManualmente = true;
+
+  var parcial = esTipoParcial();
+  var seleccionados = [];
+  if(parcial){
+    seleccionados = equiposCli.filter(function(e,i){ var cb=document.getElementById('eq-sel-'+i); return cb&&cb.checked; }).map(function(e){ return e.id; });
+  }
+
+  var tmp = equiposCli[idx]; equiposCli[idx]=equiposCli[otroIdx]; equiposCli[otroIdx]=tmp;
+
+  if(parcial){
+    renderSelEquipos();
+    equiposCli.forEach(function(e,i){
+      if(seleccionados.indexOf(e.id)!==-1){ var cb=document.getElementById('eq-sel-'+i); if(cb)cb.checked=true; }
+    });
+    var totalSel=equiposCli.filter(function(e,i){ var cb=document.getElementById('eq-sel-'+i); return cb&&cb.checked; }).length;
+    var biBtn=document.getElementById('btn-iniciar'); if(biBtn) biBtn.disabled = totalSel===0;
+  } else {
+    renderEquiposPreviewList();
+  }
+  guardarBorrador();
+
+  if(!navigator.onLine) return;
+  try{
+    if(equiposCli.some(function(e){ return e.orden==null; })){
+      // Este cliente nunca tuvo `orden` asignado: se numera todo según el
+      // orden actual en pantalla (ya incluye el intercambio recién hecho).
+      await Promise.all(equiposCli.map(function(e,i){ e.orden=(i+1)*10; return sbPatch('equipos',e.id,{orden:e.orden}); }));
+    } else {
+      var a=equiposCli[idx], b=equiposCli[otroIdx];
+      var ordenA=a.orden, ordenB=b.orden;
+      a.orden=ordenB; b.orden=ordenA;
+      await Promise.all([sbPatch('equipos',a.id,{orden:ordenB}),sbPatch('equipos',b.id,{orden:ordenA})]);
+    }
+  }catch(e){
+    console.warn('No se pudo guardar el nuevo orden de equipos (quedó aplicado solo para esta visita):', e.message);
+  }
+}
+
+// Pre-ordena por ubicación SOLO la primera vez que un cliente con contrato
+// (no spot) se abre en una visita de Mantención preventiva y ninguno de sus
+// equipos tiene aún `orden` definido. Si ya existe un orden (fijado antes
+// por el admin o por una visita anterior), se respeta tal cual. Si el
+// técnico ya reordenó a mano en esta visita, tampoco se vuelve a tocar.
+function aplicarOrdenEquipoPorUbicacion(){
+  if(window._ordenEquiposTocadoManualmente) return;
+  var tipoSel=document.getElementById('sel-tipo');
+  var esPreventivaContrato = tipoSel && tipoSel.value==='Mantención preventiva' && !(clienteSel&&clienteSel._spot);
+  if(!esPreventivaContrato) return;
+  if(!equiposCli || !equiposCli.length) return;
+  if(!equiposCli.every(function(e){ return e.orden==null; })) return;
+
+  equiposCli.sort(function(a,b){ return (a.ubicacion||'').localeCompare(b.ubicacion||''); });
+  equiposCli.forEach(function(e,i){ e.orden=(i+1)*10; });
+
+  if(navigator.onLine){
+    Promise.all(equiposCli.map(function(e){ return sbPatch('equipos',e.id,{orden:e.orden}); }))
+      .catch(function(err){ console.warn('No se pudo guardar el pre-orden por ubicación:', err.message); });
+  }
 }
 
 function toggleEquipoSel(idx, fromCb=false){
@@ -1168,13 +1264,12 @@ async function onClienteChange(){
   if(!id)return;
   if(id==='__spot__'){clienteSel={id:'__spot__',nombre:'',_spot:true,contacto:''};var sw2=document.getElementById('spot-wrap');if(sw2){sw2.style.display='block';renderSpotEquipos();}return;}
   clienteSel=clientes.find(function(c){return c.id===id;});
+  window._ordenEquiposTocadoManualmente=false;
   try{
-    equiposCli=await sbGet('equipos',`cliente_id=eq.${id}&activo=eq.true&order=tipo.asc`);
+    equiposCli=await sbGet('equipos',`cliente_id=eq.${id}&activo=eq.true&order=orden.asc.nullslast,ubicacion.asc,tipo.asc`);
     if(!equiposCli.length){document.getElementById('sin-equipos').style.display='block';return;}
-    document.getElementById('equipos-preview-list').innerHTML=equiposCli.map(e=>{
-      const t=TIPOS[e.tipo]||{icon:'🔧',label:e.tipo,color:'#f5f5f0'};
-      return`<div class="eq-item"><div class="eq-icon" style="background:${t.color}">${t.icon}</div><div><div class="eq-name">${t.label}</div><div class="eq-detail">${e.cantidad} unidad${e.cantidad>1?'es':''} · ${e.ubicacion||'—'}${e.marca?' · '+e.marca:''}</div>${e.descripcion?`<div class="eq-desc">${e.descripcion}</div>`:''}</div><span class="eq-badge">Asignado</span></div>`;
-    }).join('');
+    aplicarOrdenEquipoPorUbicacion();
+    renderEquiposPreviewList();
     if(esTipoParcial()){
       document.getElementById('equipos-preview').style.display='none';
       document.getElementById('sel-equipos-wrap').style.display='block';
@@ -1814,6 +1909,7 @@ async function enviar(){
 }
 
 function reiniciar(){
+  window._ordenEquiposTocadoManualmente=false;
   borrarBorrador();estados={};obsItems={};fotosCount={};fotosItems={};firmaOk=false;clienteSel=null;equiposCli=[];pasosChk=[];document.getElementById('pasos-dinamicos').innerHTML='';document.getElementById('sel-cliente').value='';document.getElementById('equipos-preview').style.display='none';document.getElementById('sin-equipos').style.display='none';document.getElementById('sel-equipos-wrap').style.display='none';
   var sw=document.getElementById('spot-wrap');if(sw)sw.style.display='none';
   var sn=document.getElementById('spot-nombre');if(sn)sn.value='';
@@ -2934,14 +3030,20 @@ onClienteChange = async function(){
 
   clienteSel=clientes.find(function(c){return c.id===id;});
   if(!clienteSel) return;
+  window._ordenEquiposTocadoManualmente=false;
 
   try{
     if(navigator.onLine){
-      equiposCli=await sbGet('equipos','cliente_id=eq.'+id+'&activo=eq.true&order=tipo.asc');
+      equiposCli=await sbGet('equipos','cliente_id=eq.'+id+'&activo=eq.true&order=orden.asc.nullslast,ubicacion.asc,tipo.asc');
     } else {
-      // Offline: filtrar del caché
+      // Offline: filtrar del caché y ordenar localmente (orden > ubicación > tipo)
       var todosEqs=leerDeCache(CACHE_KEY_EQUIPOS)||[];
       equiposCli=todosEqs.filter(function(e){return e.cliente_id===id&&e.activo!==false;});
+      equiposCli.sort(function(a,b){
+        var oa=(a.orden==null?Infinity:a.orden), ob=(b.orden==null?Infinity:b.orden);
+        if(oa!==ob) return oa-ob;
+        return (a.ubicacion||'').localeCompare(b.ubicacion||'')||(a.tipo||'').localeCompare(b.tipo||'');
+      });
     }
 
     if(!equiposCli.length){
@@ -2949,21 +3051,15 @@ onClienteChange = async function(){
       return;
     }
 
+    aplicarOrdenEquipoPorUbicacion();
+
     if(esTipoParcial()){
       document.getElementById('sel-equipos-wrap').style.display='block';
       renderSelEquipos();
       document.getElementById('btn-iniciar').disabled=true;
     } else {
       // Mostrar preview
-      document.getElementById('equipos-preview-list').innerHTML=equiposCli.map(function(e){
-        var t=TIPOS[e.tipo]||{icon:'🔧',label:e.tipo,color:'#f5f5f0'};
-        return'<div class="eq-item"><div class="eq-icon" style="background:'+t.color+'">'+t.icon+'</div>'
-          +'<div><div class="eq-name">'+t.label+'</div>'
-          +'<div class="eq-detail">'+e.cantidad+' unidad'+(e.cantidad>1?'es':'')
-          +' · '+(e.ubicacion||'—')+(e.marca?' · '+e.marca:'')+'</div>'
-          +(e.descripcion?'<div class="eq-desc">'+e.descripcion+'</div>':'')
-          +'</div><span class="eq-badge">Asignado</span></div>';
-      }).join('');
+      renderEquiposPreviewList();
       document.getElementById('equipos-preview').style.display='block';
       document.getElementById('btn-iniciar').disabled=false;
     }
@@ -3238,6 +3334,13 @@ function guardarBorrador(){
       equiposSel:    equiposCli ? (esTipoParcial()
                        ? equiposCli.filter(function(e,idx){ var cb=document.getElementById('eq-sel-'+idx); return cb&&cb.checked; }).map(function(e){ return e.id; })
                        : equiposCli.map(function(e){ return e.id; })) : [],
+      // Orden completo de equiposCli tal cual quedó en pantalla (incluye
+      // reordenamientos manuales con ▲▼): se guarda aparte de `equiposSel`
+      // porque este debe reflejar SIEMPRE el orden real, aunque no haya
+      // conexión para persistirlo en `equipos.orden`. Sin esto, reanudar un
+      // borrador sin conexión podría recalcular el pre-orden por ubicación
+      // y desalinear los estados ya guardados del checklist con el equipo.
+      ordenEquiposIds: equiposCli ? equiposCli.map(function(e){ return e.id; }) : [],
       esSpot:        clienteSel ? (clienteSel._spot||false) : false,
       spotEquiposChecked: (typeof TIPOS_SPOT!=='undefined') ? TIPOS_SPOT.filter(function(t){
         var cb=document.getElementById('spot-eq-'+t.key);
@@ -3320,6 +3423,27 @@ async function continuarBorrador(){
   if(sel && b.clienteId){
     sel.value = b.clienteId;
     await onClienteChange();
+    // Reponer el orden exacto de equiposCli tal cual quedó guardado (puede
+    // diferir del que acaba de traer onClienteChange, sobre todo si el
+    // reordenamiento manual no alcanzó a persistirse por falta de conexión).
+    // Se hace ANTES de restaurar tipo/estados para que todo lo que sigue
+    // (índices de checklist, checkboxes de selección) calce con esta misma
+    // secuencia.
+    if(b.ordenEquiposIds && b.ordenEquiposIds.length>0 && equiposCli && equiposCli.length>0){
+      var porId={}; equiposCli.forEach(function(e){ porId[e.id]=e; });
+      var reordenado=b.ordenEquiposIds.map(function(id){ return porId[id]; }).filter(Boolean);
+      // Agregar al final cualquier equipo nuevo que no estuviera en el borrador
+      equiposCli.forEach(function(e){ if(b.ordenEquiposIds.indexOf(e.id)===-1) reordenado.push(e); });
+      if(reordenado.length===equiposCli.length){
+        equiposCli=reordenado;
+        window._ordenEquiposTocadoManualmente=true; // respetar tal cual, no volver a auto-ordenar
+        // Se re-renderizan ambas listas (aunque solo una esté visible): el
+        // tipo de visita recién se restaura más abajo, así que todavía no
+        // sabemos con certeza cuál de las dos se mostrará.
+        renderEquiposPreviewList();
+        renderSelEquipos();
+      }
+    }
   }
 
   // Restaurar técnico
