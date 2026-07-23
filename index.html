@@ -437,7 +437,7 @@ body{padding:12px;justify-content:center;background:#1D9E75;}
           </select>
         </div>
         <div class="field"><label>Fecha de la visita</label><input type="date" id="visita-fecha"></div>
-        <div class="field"><label>Hora de inicio</label><input type="time" id="hora-inicio" value="09:00"></div>
+        <div class="field"><label>Hora de inicio</label><input type="time" id="hora-inicio"></div>
       </div></div>
       <div class="card" id="equipos-preview" style="display:none;"><div class="card-body">
         <div class="slabel">Equipos asignados</div>
@@ -645,7 +645,8 @@ let cliAdminId=null,chkEditItems=[];
 const FC=['#E1F5EE','#EEEDFE','#E6F1FB','#FAEEDA','#EAF3DE'];
 
 // Tipos de visita que requieren selección de equipos
-const TIPOS_PARCIALES=['Revisión','Emergencia','Visita técnica'];
+// (Mantención preventiva queda como único tipo que sigue revisando TODOS los equipos automáticamente)
+const TIPOS_PARCIALES=['Mantención correctiva','Revisión','Emergencia','Visita técnica'];
 
 function esTipoParcial(){
   return TIPOS_PARCIALES.includes(document.getElementById('sel-tipo').value);
@@ -726,8 +727,15 @@ async function confirmarTecnico(){
     verificarBorrador(); // construye el texto y muestra el modal, ya scoped a este técnico
   } else {
     if(b) borrarBorrador(); // borrador vencido de este técnico, limpiar
+    var hi0=document.getElementById('hora-inicio');if(hi0)hi0.value=horaActualHHMM(); // hora real, ajustable a mano
     activarStep('s1');
   }
+}
+
+// Hora local actual en formato "HH:MM" para precargar Hora de inicio
+function horaActualHHMM(){
+  var d=new Date();
+  return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');
 }
 
 function getTecnico(){
@@ -1810,7 +1818,7 @@ function reiniciar(){
   var sw=document.getElementById('spot-wrap');if(sw)sw.style.display='none';
   var sn=document.getElementById('spot-nombre');if(sn)sn.value='';
   var sd=document.getElementById('spot-direccion');if(sd)sd.value='';
-  var sc=document.getElementById('spot-contacto');if(sc)sc.value='';document.getElementById('btn-iniciar').disabled=true;document.getElementById('nota-registro').value='';document.getElementById('recepciona-nombre').value='';document.getElementById('tecnico-otro-wrap').style.display='none';document.getElementById('tecnico-otro').value='';var _fd=document.getElementById('visita-fecha');if(_fd)_fd.value=new Date().toISOString().split('T')[0];limpiarFirma();if(typeof cargarAgendaWizard==='function')cargarAgendaWizard();activarStep('s1');}
+  var sc=document.getElementById('spot-contacto');if(sc)sc.value='';document.getElementById('btn-iniciar').disabled=true;document.getElementById('nota-registro').value='';document.getElementById('recepciona-nombre').value='';document.getElementById('tecnico-otro-wrap').style.display='none';document.getElementById('tecnico-otro').value='';var _fd=document.getElementById('visita-fecha');if(_fd)_fd.value=new Date().toISOString().split('T')[0];var _hi=document.getElementById('hora-inicio');if(_hi)_hi.value=horaActualHHMM();limpiarFirma();if(typeof cargarAgendaWizard==='function')cargarAgendaWizard();activarStep('s1');}
 function togglePresup(){document.getElementById('presup-wrap').style.display=document.getElementById('req-presup').checked?'block':'none';}
 
 function initFirma(){
@@ -3225,8 +3233,11 @@ function guardarBorrador(){
                      document.getElementById('recepciona-nombre').value : '',
       notaRegistro:  document.getElementById('nota-registro') ?
                      document.getElementById('nota-registro').value : '',
-      // Equipos seleccionados (para visitas parciales)
-      equiposSel:    equiposCli ? equiposCli.map(function(e){ return e.id; }) : [],
+      // Equipos seleccionados (para visitas parciales): solo los efectivamente
+      // marcados con checkbox; en visitas no parciales se guardan todos (se usan todos igual)
+      equiposSel:    equiposCli ? (esTipoParcial()
+                       ? equiposCli.filter(function(e,idx){ var cb=document.getElementById('eq-sel-'+idx); return cb&&cb.checked; }).map(function(e){ return e.id; })
+                       : equiposCli.map(function(e){ return e.id; })) : [],
       esSpot:        clienteSel ? (clienteSel._spot||false) : false,
       spotEquiposChecked: (typeof TIPOS_SPOT!=='undefined') ? TIPOS_SPOT.filter(function(t){
         var cb=document.getElementById('spot-eq-'+t.key);
@@ -3328,6 +3339,26 @@ async function continuarBorrador(){
   if(st && b.tipo){ st.value = b.tipo; onTipoVisitaChange(); }
   var hi = document.getElementById('hora-inicio');
   if(hi && b.horaInicio) hi.value = b.horaInicio;
+
+  // Restaurar selección de equipos en visitas parciales (Revisión, Emergencia,
+  // Visita técnica, Mantención correctiva): los checkboxes se re-renderizan
+  // vacíos al restaurar el cliente/tipo, hay que volver a marcar los que
+  // estaban seleccionados antes de que iniciarVisita() los use más abajo.
+  if(!b.esSpot && esTipoParcial() && equiposCli && equiposCli.length>0){
+    var equiposSelIds = b.equiposSel || [];
+    equiposCli.forEach(function(e, idx){
+      if(equiposSelIds.indexOf(e.id) !== -1){
+        var cbEq = document.getElementById('eq-sel-'+idx);
+        if(cbEq) cbEq.checked = true;
+      }
+    });
+    var totalSel = equiposCli.filter(function(e, idx){
+      var cbEq = document.getElementById('eq-sel-'+idx);
+      return cbEq && cbEq.checked;
+    }).length;
+    var biBtn = document.getElementById('btn-iniciar');
+    if(biBtn) biBtn.disabled = totalSel===0;
+  }
 
   // Restaurar cliente spot
   if(b.esSpot && b.spotNombre){
