@@ -892,6 +892,109 @@ function _dedupUltimaVersion(lista){
   return Object.values(grupos);
 }
 
+// ── FOTOS EN EDICION DE GUIA (agregar/quitar fotos desde el editor del admin) ──
+// Estado en memoria de la sesion de edicion actual. Se reinicia cada vez que se abre o cancela el editor.
+// _editFotos.item['si-ii'] = [{id, url, urlRemota, removed, isNew}]  (fotos ligadas a un item del checklist)
+// _editFotos.seccion[si]   = [{id, url, urlRemota, removed, isNew}]  (fotos generales del equipo, "adicionales")
+let _editFotos={item:{},seccion:{}};
+let _editFotosPendientes=[]; // promesas de subida en curso, se esperan todas antes de guardar
+
+async function subirFotoEdicion(file,carpeta){
+  try{
+    const ext=file.name.split('.').pop()||'jpg';
+    const nombre=carpeta+'/'+Date.now()+'-'+Math.random().toString(36).substr(2,6)+'.'+ext;
+    const resp=await fetch(SB+'/storage/v1/object/fotos-reportes/'+nombre,{
+      method:'POST',
+      headers:{'apikey':KEY,'Authorization':'Bearer '+(window._authTokenAdmin||KEY),'Content-Type':file.type||'image/jpeg'},
+      body:file
+    });
+    if(!resp.ok){ console.warn('Error subiendo foto:',await resp.text()); return null; }
+    return SB+'/storage/v1/object/public/fotos-reportes/'+nombre;
+  }catch(e){ console.warn('Error subiendo foto:',e); return null; }
+}
+
+function _efInit(r){
+  _editFotos={item:{},seccion:{}};
+  _editFotosPendientes=[];
+  (r.secciones||[]).forEach((s,si)=>{
+    _editFotos.seccion[si]=(s.urlsFotosSeccion||[]).map((url,idx)=>({id:'ef-s'+si+'-'+idx,url,urlRemota:url,removed:false,isNew:false}));
+    (s.items||[]).forEach((i,ii)=>{
+      _editFotos.item[si+'-'+ii]=(i.urlsFotos||[]).map((url,idx)=>({id:'ef-i'+si+'-'+ii+'-'+idx,url,urlRemota:url,removed:false,isNew:false}));
+    });
+  });
+}
+
+function _efLimpiar(){
+  // Libera memoria de fotos nuevas no guardadas (blob URLs)
+  Object.values(_editFotos.item).forEach(arr=>arr.forEach(f=>{if(f.isNew)URL.revokeObjectURL(f.url);}));
+  Object.values(_editFotos.seccion).forEach(arr=>arr.forEach(f=>{if(f.isNew)URL.revokeObjectURL(f.url);}));
+  _editFotos={item:{},seccion:{}};
+  _editFotosPendientes=[];
+}
+
+function _efGrid(tipo,key){
+  const store=tipo==='item'?_editFotos.item:_editFotos.seccion;
+  const fotos=(store[key]||[]).filter(f=>!f.removed);
+  let h=`<div class="foto-item-grid" id="ef-grid-${tipo}-${key}">`;
+  fotos.forEach(f=>{
+    h+=`<div class="foto-item-thumb" id="${f.id}"><img src="${f.url}"><button class="foto-item-del" type="button" onclick="_efQuitarFoto('${tipo}','${key}','${f.id}')">✕</button></div>`;
+  });
+  h+='</div>';
+  return h;
+}
+
+function _renderFotosItemHTML(si,ii){
+  const key=si+'-'+ii;
+  return `<div style="margin-top:6px;padding-top:6px;border-top:0.5px dashed var(--gray2);">
+        <div style="font-size:10px;color:var(--text3);margin-bottom:4px;">📷 Fotos de este item (solo aparecen en la guia si el estado es Alerta o Problema; el comentario es la observacion de arriba)</div>
+        ${_efGrid('item',key)}
+        <button type="button" class="btn-teal-sm" style="font-size:10px;padding:3px 8px;margin-top:4px;background:var(--gray3);" onclick="_efAgregarFoto('item','${key}')">+ Agregar foto</button>
+      </div>`;
+}
+
+function _renderFotosSeccionHTML(si){
+  return `<div style="padding:8px 10px;border-top:0.5px solid var(--gray2);">
+      <div style="font-size:11px;font-weight:500;margin-bottom:4px;">📷 Fotos adicionales de este equipo (no ligadas a un item, se muestran como "Vista general")</div>
+      ${_efGrid('seccion',si)}
+      <button type="button" class="btn-teal-sm" style="font-size:10px;padding:3px 8px;margin-top:4px;background:var(--gray3);" onclick="_efAgregarFoto('seccion','${si}')">+ Agregar foto</button>
+    </div>`;
+}
+
+function _efQuitarFoto(tipo,key,id){
+  const store=tipo==='item'?_editFotos.item:_editFotos.seccion;
+  const f=(store[key]||[]).find(x=>x.id===id);
+  if(f)f.removed=true;
+  const el=document.getElementById(id);
+  if(el)el.remove();
+}
+
+function _efAgregarFoto(tipo,key){
+  const inp=document.createElement('input');
+  inp.type='file';inp.accept='image/*';inp.multiple=true;inp.style.display='none';
+  inp.onchange=function(){
+    const store=tipo==='item'?_editFotos.item:_editFotos.seccion;
+    store[key]=store[key]||[];
+    Array.from(inp.files).forEach(file=>{
+      const id='ef-new-'+tipo+'-'+key+'-'+Date.now()+'-'+Math.random().toString(36).substr(2,5);
+      const url=URL.createObjectURL(file);
+      const entrada={id,url,urlRemota:null,removed:false,isNew:true};
+      store[key].push(entrada);
+      const grid=document.getElementById(`ef-grid-${tipo}-${key}`);
+      if(grid){
+        const div=document.createElement('div');
+        div.className='foto-item-thumb';div.id=id;
+        div.innerHTML=`<img src="${url}"><button class="foto-item-del" type="button" onclick="_efQuitarFoto('${tipo}','${key}','${id}')">✕</button>`;
+        grid.appendChild(div);
+      }
+      const carpeta=(tipo==='item'?'items/edicion-':'secciones/edicion-')+key;
+      _editFotosPendientes.push(subirFotoEdicion(file,carpeta).then(urlRemota=>{entrada.urlRemota=urlRemota;}));
+    });
+  };
+  document.body.appendChild(inp);
+  inp.click();
+  setTimeout(()=>inp.remove(),1000);
+}
+
 let clientes=[],clienteSel=null,equiposCli=[];
 function mapEstadoLargo(v){
   if(v==='al') return 'alerta';
@@ -1346,6 +1449,7 @@ const TIPO_VISITA_OPTS=['Mantención preventiva','Mantención correctiva','Revis
 function abrirEdicionGuia(){
   const r=reporteActual;
   if(!r)return;
+  _efInit(r);
   document.getElementById('btn-editar-guia').style.display='none';
   document.getElementById('btn-pdf-guia').style.display='none';
   document.getElementById('btn-guardar-pdf').style.display='none';
@@ -1379,8 +1483,10 @@ function abrirEdicionGuia(){
           </select>
           <input type="text" id="edit-obs-${si}-${ii}" placeholder="Observación..." value="${(i.obs||'').replace(/"/g,'&quot;')}" style="flex:1;font-size:11px;padding:4px 8px;border-radius:6px;border:0.5px solid var(--gray3);">
         </div>
+        ${_renderFotosItemHTML(si,ii)}
       </div>`;
     });
+    html+=_renderFotosSeccionHTML(si);
     html+='</div>';
   });
 
@@ -1406,6 +1512,7 @@ function abrirEdicionGuia(){
 }
 
 function cancelarEdicionGuia(){
+  _efLimpiar();
   document.getElementById('btn-editar-guia').style.display='';
   document.getElementById('btn-pdf-guia').style.display='';
   document.getElementById('btn-guardar-pdf').style.display='';
@@ -1445,15 +1552,39 @@ async function guardarEdicionGuia(){
   btn.disabled=true;btn.textContent='⏳ Guardando...';
 
   try{
-    // Reconstruir secciones con los nuevos estados/observaciones
-    const nuevasSecciones=(r.secciones||[]).map((s,si)=>({
-      ...s,
-      items:(s.items||[]).map((i,ii)=>({
-        ...i,
-        estado:document.getElementById(`edit-estado-${si}-${ii}`).value,
-        obs:document.getElementById(`edit-obs-${si}-${ii}`).value
-      }))
-    }));
+    if(_editFotosPendientes.length){
+      btn.textContent='⏳ Subiendo fotos...';
+      await Promise.all(_editFotosPendientes);
+    }
+
+    const fotosFallidas=[];
+    Object.values(_editFotos.item).forEach(arr=>arr.forEach(f=>{if(f.isNew&&!f.removed&&!f.urlRemota)fotosFallidas.push(f);}));
+    Object.values(_editFotos.seccion).forEach(arr=>arr.forEach(f=>{if(f.isNew&&!f.removed&&!f.urlRemota)fotosFallidas.push(f);}));
+    if(fotosFallidas.length>0 && !confirm(`${fotosFallidas.length} foto(s) no se pudieron subir y se omitirán. ¿Guardar de todas formas?`)){
+      btn.disabled=false;btn.textContent='💾 Guardar como nueva versión';
+      return;
+    }
+
+    // Reconstruir secciones con los nuevos estados/observaciones/fotos
+    const nuevasSecciones=(r.secciones||[]).map((s,si)=>{
+      const fotosSeccion=(_editFotos.seccion[si]||[]).filter(f=>!f.removed).map(f=>f.urlRemota).filter(Boolean);
+      return {
+        ...s,
+        fotos:fotosSeccion.length,
+        urlsFotosSeccion:fotosSeccion,
+        items:(s.items||[]).map((i,ii)=>{
+          const key=si+'-'+ii;
+          const fotosItem=(_editFotos.item[key]||[]).filter(f=>!f.removed).map(f=>f.urlRemota).filter(Boolean);
+          return {
+            ...i,
+            estado:document.getElementById(`edit-estado-${si}-${ii}`).value,
+            obs:document.getElementById(`edit-obs-${si}-${ii}`).value,
+            nFotosItem:fotosItem.length,
+            urlsFotos:fotosItem
+          };
+        })
+      };
+    });
 
     const nuevo={
       tecnico:document.getElementById('edit-tecnico').value,
@@ -1467,7 +1598,13 @@ async function guardarEdicionGuia(){
       secciones:nuevasSecciones
     };
 
-    const resumenCambios=_diffEdicionGuia(r, nuevo);
+    let resumenCambios=_diffEdicionGuia(r, nuevo);
+    let fotosAgregadas=0,fotosQuitadas=0;
+    Object.values(_editFotos.item).forEach(arr=>{fotosAgregadas+=arr.filter(f=>f.isNew&&!f.removed&&f.urlRemota).length;fotosQuitadas+=arr.filter(f=>!f.isNew&&f.removed).length;});
+    Object.values(_editFotos.seccion).forEach(arr=>{fotosAgregadas+=arr.filter(f=>f.isNew&&!f.removed&&f.urlRemota).length;fotosQuitadas+=arr.filter(f=>!f.isNew&&f.removed).length;});
+    if(fotosAgregadas>0)resumenCambios+=`; ${fotosAgregadas} foto(s) agregada(s)`;
+    if(fotosQuitadas>0)resumenCambios+=`; ${fotosQuitadas} foto(s) eliminada(s)`;
+
     const rootId=r.reporte_original_id||r.id;
     const nuevaVersion=(r.version||1)+1;
 
@@ -1495,6 +1632,7 @@ async function guardarEdicionGuia(){
     });
 
     const nuevoReporte=creado[0];
+    _efLimpiar();
     _scForzarRecarga(); // recarga real el scorecard ahora mismo (fila nueva por versionado), no espera a la próxima visita a la pestaña
 
     document.getElementById('btn-editar-guia').style.display='';
