@@ -439,7 +439,7 @@ async function checkLogin(){
           <div class="a-card">
             <div class="a-card-title">➕ Agregar equipo</div>
             <div class="a-field"><label>Tipo de equipo *</label>
-              <select id="eq-tipo">
+              <select id="eq-tipo" onchange="onEqTipoChange()">
                 <option value="">Selecciona...</option>
                 <option value="calefont">🔥 Calefont / Caldera</option>
                 <option value="ventiladores">💨 Ventiladores extracción</option>
@@ -448,6 +448,8 @@ async function checkLogin(){
                 <option value="minisplit">❄️ Minisplit / VRF / Fan coil</option>
                 <option value="chiller">🧊 Chiller</option>
                 <option value="electrico">⚡ Sistema eléctrico</option>
+                <option value="filtro_agua">💧 Filtro Agua Red</option>
+                <option value="intercambiador">🔄 Intercambiador Placas</option>
                 <option value="otro">🔧 Otro</option>
               </select>
             </div>
@@ -459,6 +461,8 @@ async function checkLogin(){
               <div class="a-field"><label>Marca</label><input type="text" spellcheck="true" id="eq-marca" placeholder="Ej: Bosch"></div>
               <div class="a-field"><label>Modelo</label><input type="text" spellcheck="true" id="eq-modelo" placeholder="Ej: WBN6"></div>
             </div>
+            <div class="a-field" id="eq-fecha-cartucho-wrap" style="display:none;"><label>Última reposición de cartucho</label><input type="date" id="eq-fecha-cartucho"></div>
+            <div class="a-field" id="eq-fecha-sellos-wrap" style="display:none;"><label>Última reposición de sellos</label><input type="date" id="eq-fecha-sellos"></div>
             <div class="a-field"><label>Descripción</label><textarea spellcheck="true" id="eq-descripcion" placeholder="Detalles específicos del equipo..."></textarea></div>
             <button class="btn-purple" style="width:100%;margin-top:4px;" onclick="guardarEquipo()">Guardar equipo</button>
           </div>
@@ -820,11 +824,12 @@ async function checkLogin(){
     <div class="modal-title"><span>✏️ Editar equipo</span><button class="modal-close" onclick="cerrarModalEquipo()">✕</button></div>
     <input type="hidden" id="edit-eq-id">
     <div class="a-field"><label>Tipo de equipo</label>
-      <select id="edit-eq-tipo">
+      <select id="edit-eq-tipo" onchange="onEditEqTipoChange()">
         <option value="calefont">🔥 Calefont / Caldera</option><option value="ventiladores">💨 Ventiladores extracción</option>
         <option value="presurizador">🌀 Presurizador</option><option value="bombas">⚙️ Bombas / Sistema hidráulico</option>
         <option value="minisplit">❄️ Minisplit / VRF / Fan coil</option><option value="chiller">🧊 Chiller</option>
-        <option value="electrico">⚡ Sistema eléctrico</option><option value="otro">🔧 Otro</option>
+        <option value="electrico">⚡ Sistema eléctrico</option><option value="filtro_agua">💧 Filtro Agua Red</option>
+        <option value="intercambiador">🔄 Intercambiador Placas</option><option value="otro">🔧 Otro</option>
       </select>
     </div>
     <div class="a-grid2">
@@ -835,6 +840,8 @@ async function checkLogin(){
       <div class="a-field"><label>Marca</label><input type="text" spellcheck="true" id="edit-eq-marca"></div>
       <div class="a-field"><label>Modelo</label><input type="text" spellcheck="true" id="edit-eq-modelo"></div>
     </div>
+    <div class="a-field" id="edit-eq-fecha-cartucho-wrap" style="display:none;"><label>Última reposición de cartucho</label><input type="date" id="edit-eq-fecha-cartucho"></div>
+    <div class="a-field" id="edit-eq-fecha-sellos-wrap" style="display:none;"><label>Última reposición de sellos</label><input type="date" id="edit-eq-fecha-sellos"></div>
     <div class="a-field"><label>Descripción</label><textarea spellcheck="true" id="edit-eq-descripcion"></textarea></div>
     <div style="display:flex;gap:8px;margin-top:10px;">
       <button class="btn-purple" style="flex:1;" onclick="actualizarEquipo()">Guardar cambios</button>
@@ -877,6 +884,8 @@ const TIPOS={
   minisplit:{label:'Minisplit / VRF / Fan coil',icon:'❄️',color:'#E1F5EE',items:['Limpieza de filtros unidad interior','Limpieza de evaporador','Revisión de drenaje de condensado','Limpieza de condensador exterior','Verificación de presión de gas','Medición temperatura suministro/retorno','Chequeo de corriente del compresor','Prueba en modo frío y calor']},
   chiller:{label:'Chiller',icon:'🧊',color:'#FCEBEB',items:['Revisión de compresor','Chequeo de presiones alta y baja','Verificación de refrigerante','Limpieza de condensador','Revisión de alarmas','Chequeo de bomba de agua helada','Verificación temp. agua helada','Prueba de ciclo completo']},
   electrico:{label:'Sistema eléctrico',icon:'⚡',color:'#F1EFE8',items:['Revisión de tablero de control','Verificación de fusibles','Medición de voltaje (V)','Revisión de bornes y conexiones','Chequeo de sensores y termostatos','Revisión de señales de alarma']},
+  filtro_agua:{label:'Filtro Agua Red',icon:'💧',color:'#DFF6FB',items:['Revisión de presión de entrada y salida','Verificación de fugas en conexiones y acople del cartucho','Estado visual del cartucho (color, turbidez, saturación)','Prueba de caudal de salida','Revisión de válvulas de paso y bypass','Limpieza de carcasa del filtro','Reposición de cartucho (si corresponde según vida útil)'],trackCampo:'ultima_reposicion_cartucho',trackLabel:'reposición de cartucho'},
+  intercambiador:{label:'Intercambiador Placas',icon:'🔄',color:'#F3E8FD',items:['Inspección visual de fugas entre placas','Revisión de presión y temperatura en ambos circuitos (primario/secundario)','Verificación de sellos/empaquetaduras (estado, endurecimiento, deformación)','Prueba de eficiencia de intercambio (delta de temperatura entrada/salida)','Cambio de sellos (si corresponde según estado)'],trackCampo:'ultima_reposicion_sellos',trackLabel:'cambio de sellos'},
   otro:{label:'Otro equipo',icon:'🔧',color:'#F5F5F0',items:['Inspección visual general','Revisión de funcionamiento','Chequeo de conexiones','Prueba de operación','Observaciones generales']},
 };
 
@@ -1761,12 +1770,27 @@ function _eqRowHtml(e, idx, total, cid){
           <div style="font-size:13px;font-weight:500;">${t.label}</div>
           <div style="font-size:11px;color:var(--text3);">${e.cantidad} und. · ${e.ubicacion||'—'}${e.marca?' · '+e.marca:''}${e.modelo?' '+e.modelo:''}</div>
           ${e.descripcion?`<div style="font-size:11px;color:var(--teal-dark);font-style:italic;">${e.descripcion}</div>`:''}
+          ${e.ultima_reposicion_cartucho?`<div style="font-size:11px;color:var(--text3);">💧 Última reposición de cartucho: ${e.ultima_reposicion_cartucho}</div>`:''}
+          ${e.ultima_reposicion_sellos?`<div style="font-size:11px;color:var(--text3);">🔄 Última reposición de sellos: ${e.ultima_reposicion_sellos}</div>`:''}
         </div>
         <div style="display:flex;gap:4px;flex-shrink:0;">
-          <button class="btn-edit" onclick="abrirModalEquipo('${e.id}','${e.tipo}','${e.cantidad||1}','${(e.ubicacion||'').replace(/'/g,"\\'")}','${(e.marca||'').replace(/'/g,"\\'")}','${(e.modelo||'').replace(/'/g,"\\'")}','${(e.descripcion||'').replace(/'/g,"\\'")}')">✏️</button>
+          <button class="btn-edit" onclick="abrirModalEquipo('${e.id}','${e.tipo}','${e.cantidad||1}','${(e.ubicacion||'').replace(/'/g,"\\'")}','${(e.marca||'').replace(/'/g,"\\'")}','${(e.modelo||'').replace(/'/g,"\\'")}','${(e.descripcion||'').replace(/'/g,"\\'")}','${e.ultima_reposicion_cartucho||''}','${e.ultima_reposicion_sellos||''}')">✏️</button>
           <button class="btn-danger" onclick="eliminarEq('${e.id}','${cid}')">🗑️</button>
         </div>
       </div>`;
+}
+
+// Muestra/oculta los campos de fecha según el tipo de equipo elegido (solo
+// aplican a Filtro Agua Red / Intercambiador Placas; el resto no los usa).
+function onEqTipoChange(){
+  const v=document.getElementById('eq-tipo').value;
+  document.getElementById('eq-fecha-cartucho-wrap').style.display=(v==='filtro_agua')?'block':'none';
+  document.getElementById('eq-fecha-sellos-wrap').style.display=(v==='intercambiador')?'block':'none';
+}
+function onEditEqTipoChange(){
+  const v=document.getElementById('edit-eq-tipo').value;
+  document.getElementById('edit-eq-fecha-cartucho-wrap').style.display=(v==='filtro_agua')?'block':'none';
+  document.getElementById('edit-eq-fecha-sellos-wrap').style.display=(v==='intercambiador')?'block':'none';
 }
 
 function renderEquiposAdmin(cid){
@@ -1801,15 +1825,16 @@ async function guardarEquipo(){
   if(!cliAdminId){alert('Selecciona un cliente primero');return;}
   const tipo=document.getElementById('eq-tipo').value;if(!tipo){alert('Selecciona el tipo');return;}
   try{
-    await sbPost('equipos',{cliente_id:cliAdminId,tipo,cantidad:parseInt(document.getElementById('eq-cantidad').value)||1,ubicacion:document.getElementById('eq-ubicacion').value,marca:document.getElementById('eq-marca').value,modelo:document.getElementById('eq-modelo').value,descripcion:document.getElementById('eq-descripcion').value||null,activo:true});
-    ['eq-tipo','eq-ubicacion','eq-marca','eq-modelo','eq-descripcion'].forEach(id=>document.getElementById(id).value='');
+    await sbPost('equipos',{cliente_id:cliAdminId,tipo,cantidad:parseInt(document.getElementById('eq-cantidad').value)||1,ubicacion:document.getElementById('eq-ubicacion').value,marca:document.getElementById('eq-marca').value,modelo:document.getElementById('eq-modelo').value,descripcion:document.getElementById('eq-descripcion').value||null,ultima_reposicion_cartucho:document.getElementById('eq-fecha-cartucho').value||null,ultima_reposicion_sellos:document.getElementById('eq-fecha-sellos').value||null,activo:true});
+    ['eq-tipo','eq-ubicacion','eq-marca','eq-modelo','eq-descripcion','eq-fecha-cartucho','eq-fecha-sellos'].forEach(id=>document.getElementById(id).value='');
     document.getElementById('eq-cantidad').value='1';
+    onEqTipoChange();
     await cargarEquiposAdmin(cliAdminId);
     const m=document.getElementById('msg-equipo');m.classList.add('show');setTimeout(()=>m.classList.remove('show'),2500);
   }catch(e){alert('Error: '+e.message);}
 }
 
-function abrirModalEquipo(id,tipo,cantidad,ubicacion,marca,modelo,descripcion){
+function abrirModalEquipo(id,tipo,cantidad,ubicacion,marca,modelo,descripcion,fechaCartucho,fechaSellos){
   document.getElementById('edit-eq-id').value=id;
   document.getElementById('edit-eq-tipo').value=tipo;
   document.getElementById('edit-eq-cantidad').value=cantidad;
@@ -1817,6 +1842,9 @@ function abrirModalEquipo(id,tipo,cantidad,ubicacion,marca,modelo,descripcion){
   document.getElementById('edit-eq-marca').value=marca;
   document.getElementById('edit-eq-modelo').value=modelo;
   document.getElementById('edit-eq-descripcion').value=descripcion;
+  document.getElementById('edit-eq-fecha-cartucho').value=fechaCartucho||'';
+  document.getElementById('edit-eq-fecha-sellos').value=fechaSellos||'';
+  onEditEqTipoChange();
   document.getElementById('modal-equipo').classList.add('show');
 }
 function cerrarModalEquipo(){document.getElementById('modal-equipo').classList.remove('show');}
@@ -1824,7 +1852,7 @@ function cerrarModalEquipo(){document.getElementById('modal-equipo').classList.r
 async function actualizarEquipo(){
   const id=document.getElementById('edit-eq-id').value;
   try{
-    await sbPatch('equipos',id,{tipo:document.getElementById('edit-eq-tipo').value,cantidad:parseInt(document.getElementById('edit-eq-cantidad').value)||1,ubicacion:document.getElementById('edit-eq-ubicacion').value,marca:document.getElementById('edit-eq-marca').value,modelo:document.getElementById('edit-eq-modelo').value,descripcion:document.getElementById('edit-eq-descripcion').value||null});
+    await sbPatch('equipos',id,{tipo:document.getElementById('edit-eq-tipo').value,cantidad:parseInt(document.getElementById('edit-eq-cantidad').value)||1,ubicacion:document.getElementById('edit-eq-ubicacion').value,marca:document.getElementById('edit-eq-marca').value,modelo:document.getElementById('edit-eq-modelo').value,descripcion:document.getElementById('edit-eq-descripcion').value||null,ultima_reposicion_cartucho:document.getElementById('edit-eq-fecha-cartucho').value||null,ultima_reposicion_sellos:document.getElementById('edit-eq-fecha-sellos').value||null});
     cerrarModalEquipo();await cargarEquiposAdmin(cliAdminId);
     const m=document.getElementById('msg-equipo');m.classList.add('show');setTimeout(()=>m.classList.remove('show'),2500);
   }catch(e){alert('Error: '+e.message);}

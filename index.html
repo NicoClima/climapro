@@ -629,6 +629,8 @@ const TIPOS={
   minisplit:{label:'Minisplit / VRF / Fan coil',icon:'❄️',color:'#E1F5EE',items:['Limpieza de filtros unidad interior','Limpieza de evaporador','Revisión de drenaje de condensado','Limpieza de condensador exterior','Verificación de presión de gas','Medición temperatura suministro/retorno','Chequeo de corriente del compresor','Prueba en modo frío y calor']},
   chiller:{label:'Chiller',icon:'🧊',color:'#FCEBEB',items:['Revisión de compresor','Chequeo de presiones alta y baja','Verificación de refrigerante','Limpieza de condensador','Revisión de alarmas','Chequeo de bomba de agua helada','Verificación temp. agua helada','Prueba de ciclo completo']},
   electrico:{label:'Sistema eléctrico',icon:'⚡',color:'#F1EFE8',items:['Revisión de tablero de control','Verificación de fusibles','Medición de voltaje (V)','Revisión de bornes y conexiones','Chequeo de sensores y termostatos','Revisión de señales de alarma']},
+  filtro_agua:{label:'Filtro Agua Red',icon:'💧',color:'#DFF6FB',items:['Revisión de presión de entrada y salida','Verificación de fugas en conexiones y acople del cartucho','Estado visual del cartucho (color, turbidez, saturación)','Prueba de caudal de salida','Revisión de válvulas de paso y bypass','Limpieza de carcasa del filtro','Reposición de cartucho (si corresponde según vida útil)'],trackCampo:'ultima_reposicion_cartucho',trackLabel:'reposición de cartucho'},
+  intercambiador:{label:'Intercambiador Placas',icon:'🔄',color:'#F3E8FD',items:['Inspección visual de fugas entre placas','Revisión de presión y temperatura en ambos circuitos (primario/secundario)','Verificación de sellos/empaquetaduras (estado, endurecimiento, deformación)','Prueba de eficiencia de intercambio (delta de temperatura entrada/salida)','Cambio de sellos (si corresponde según estado)'],trackCampo:'ultima_reposicion_sellos',trackLabel:'cambio de sellos'},
   otro:{label:'Otro equipo',icon:'🔧',color:'#F5F5F0',items:['Inspección visual general','Revisión de funcionamiento','Chequeo de conexiones','Prueba de operación','Observaciones generales']},
 };
 
@@ -1324,6 +1326,7 @@ function construirPasos(){
         ${eq.modoAbreviado?`<div style="font-size:12px;color:var(--amber-dark);margin-bottom:8px;background:var(--amber-light);padding:6px 10px;border-radius:8px;">💡 Marca solo los ítems que revisaste en esta visita</div>`:''}
         ${eq.cantidad>1?`<div style="font-size:12px;color:var(--text3);margin-bottom:8px;background:var(--teal-light);padding:6px 10px;border-radius:8px;">📍 ${eq.cantidad} unidades · ${eq.ubicacion||''}</div>`:''}
         ${eq.descripcion?`<div style="font-size:12px;color:var(--teal-dark);margin-bottom:8px;background:var(--teal-light);padding:6px 10px;border-radius:8px;font-style:italic;">📋 ${eq.descripcion}</div>`:''}
+        ${eq.trackCampo?tarjetaReposicionHTML(eq,idx):''}
         <div id="items-${sid}"></div>
         <div class="card"><div class="card-body"><div class="slabel">📷 Fotos — ${eq.label}</div>
           <button class="foto-add-btn" onclick="addFoto('${sid}')"><span style="font-size:20px;">📸</span><span style="font-size:13px;color:var(--text2);">Agregar foto</span><span class="foto-counter" id="fc-${sid}">0 fotos</span></button>
@@ -1341,6 +1344,105 @@ function construirPasos(){
 }
 
 function genDots(total,activo){let h='<div class="dots">';for(let i=0;i<Math.min(total,8);i++){h+=i===activo?'<div class="dot active"></div>':i<activo?'<div class="dot done"></div>':'<div class="dot"></div>';}return h+'</div>';}
+
+// ── REGISTRO DE ÚLTIMA REPOSICIÓN (cartucho de filtro, sellos de intercambiador) ──
+// Campo genérico: cada tipo de equipo que lo necesita declara en TIPOS
+// `trackCampo` (columna en `equipos`, ej. 'ultima_reposicion_cartucho') y
+// `trackLabel` (texto para mostrar, ej. 'reposición de cartucho'). No es
+// parte del checklist de la visita: es un dato del equipo que persiste
+// entre visitas, igual que ubicación/marca/modelo.
+function formatFechaCorta(f){
+  if(!f) return null;
+  var d=new Date(f+'T00:00:00');
+  if(isNaN(d.getTime())) return null;
+  return d.toLocaleDateString('es-CL',{day:'2-digit',month:'2-digit',year:'numeric'});
+}
+function diasTranscurridosTexto(f){
+  var d=new Date(f+'T00:00:00');
+  if(isNaN(d.getTime())) return '';
+  var dias=Math.floor((Date.now()-d.getTime())/86400000);
+  if(dias<0) return '';
+  if(dias<31) return `(hace ${dias} día${dias!==1?'s':''})`;
+  var meses=Math.round(dias/30);
+  return `(hace ${meses} mes${meses!==1?'es':''})`;
+}
+function tarjetaReposicionHTML(eq, idx){
+  if(!eq.trackCampo) return '';
+  var fecha=eq[eq.trackCampo];
+  var fechaTxt=formatFechaCorta(fecha);
+  return `<div class="card" id="reposicion-card-${idx}" style="margin-bottom:8px;"><div class="card-body">
+      <div class="slabel">🔧 Registro de ${eq.trackLabel}</div>
+      <div style="font-size:13px;color:var(--text2);margin-bottom:8px;">${fechaTxt?`Última: <strong>${fechaTxt}</strong> ${diasTranscurridosTexto(fecha)}`:'Sin registro previo'}</div>
+      <button type="button" class="btn-outline" id="btn-reposicion-${idx}" onclick="registrarReposicionEquipo(${idx})" style="width:100%;">Registrar ${eq.trackLabel} hoy</button>
+    </div></div>`;
+}
+async function registrarReposicionEquipo(idx){
+  var eq=pasosChk[idx];
+  if(!eq || !eq.trackCampo) return;
+  var campo=eq.trackCampo;
+  if(!confirm(`¿Confirmas que hoy se hizo ${eq.trackLabel} en este equipo?`)) return;
+  var btn=document.getElementById('btn-reposicion-'+idx);
+  if(btn){ btn.disabled=true; btn.textContent='Guardando...'; }
+  var hoy=new Date().toISOString().split('T')[0];
+
+  // Se aplica de inmediato en memoria, haya o no conexión — la tarjeta y el
+  // resto de la visita/guía siempre reflejan el cambio al toque.
+  eq[campo]=hoy;
+  var eqCli=equiposCli.find(function(e){return e.id===eq.id;});
+  if(eqCli) eqCli[campo]=hoy;
+  var cont=document.getElementById('reposicion-card-'+idx);
+  if(cont) cont.outerHTML=tarjetaReposicionHTML(eq, idx);
+  guardarBorrador();
+
+  var patch={}; patch[campo]=hoy;
+  if(navigator.onLine){
+    try{
+      await sbPatch('equipos', eq.id, patch);
+      return; // sincronizado al toque, no hace falta encolar nada
+    }catch(e){
+      console.warn('Fallo el guardado online de '+eq.trackLabel+', se encola para reintentar:', e.message);
+    }
+  }
+  // Sin conexión (o falló el intento online pese a estar "online"): se
+  // encola en localStorage y se reintenta solo cuando vuelva la señal
+  // (mismo mecanismo que la cola de reportes pendientes — actualizarEstadoRed()).
+  encolarReposicionPendiente(eq.id, campo, hoy);
+  if(!navigator.onLine){
+    alert('Sin conexión: la fecha quedó guardada para esta visita y se sincronizará automáticamente con el sistema cuando vuelva la señal.');
+  }
+}
+
+// ── Cola de reposiciones pendientes (offline) ─────────────
+// Mismo patrón que la cola de reportes pendientes (CACHE_KEY_PENDIENTES):
+// se guarda en localStorage y actualizarEstadoRed() la reintenta cada vez
+// que la app detecta que volvió la conexión.
+function encolarReposicionPendiente(equipoId, campo, fecha){
+  var pendientes = leerDeCache(CACHE_KEY_REPOSICIONES_PENDIENTES)||[];
+  // Si ya había una pendiente para el mismo equipo+campo, se reemplaza por
+  // la más reciente (no tiene sentido reenviar fechas viejas).
+  pendientes = pendientes.filter(function(p){ return !(p.equipoId===equipoId && p.campo===campo); });
+  pendientes.push({equipoId:equipoId, campo:campo, fecha:fecha, _fechaGuardado:new Date().toISOString()});
+  guardarEnCache(CACHE_KEY_REPOSICIONES_PENDIENTES, pendientes);
+}
+
+async function enviarReposicionesPendientes(){
+  if(!navigator.onLine) return;
+  var pendientes = leerDeCache(CACHE_KEY_REPOSICIONES_PENDIENTES)||[];
+  if(!pendientes.length) return;
+  var exitosos=[];
+  for(var i=0;i<pendientes.length;i++){
+    var p=pendientes[i];
+    try{
+      var patch={}; patch[p.campo]=p.fecha;
+      await sbPatch('equipos', p.equipoId, patch);
+      exitosos.push(i);
+    }catch(e){
+      console.warn('No se pudo sincronizar una reposición pendiente:', e.message);
+    }
+  }
+  var restantes = pendientes.filter(function(p,i){ return exitosos.indexOf(i)===-1; });
+  guardarEnCache(CACHE_KEY_REPOSICIONES_PENDIENTES, restantes);
+}
 function mkFotoZona(sid,i,item){
   var d=document.createElement('div');
   d.className='foto-item-req';d.id='foto-req-'+sid+'-'+i;
@@ -2680,6 +2782,7 @@ var CACHE_KEY_CHECKLISTS = 'climapro_checklists';
 var CACHE_KEY_SYNC       = 'climapro_last_sync';
 var CACHE_KEY_PENDIENTES = 'climapro_pendientes';
 var CACHE_KEY_TECNICOS   = 'climapro_tecnicos';
+var CACHE_KEY_REPOSICIONES_PENDIENTES = 'climapro_reposiciones_pendientes';
 var CACHE_TTL            = 24 * 60 * 60 * 1000; // 24 horas
 var estaOffline          = false;
 
@@ -2724,6 +2827,8 @@ function actualizarEstadoRed(){
     }
     // Intentar enviar reportes pendientes
     enviarPendientes();
+    // Intentar sincronizar reposiciones (cartucho/sellos) que quedaron pendientes offline
+    enviarReposicionesPendientes();
     // Re-sincronizar datos
     sincronizarDatos();
   }
