@@ -616,6 +616,13 @@ const SB='https://okwyfpaifseqcrneccxa.supabase.co';
 const KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9rd3lmcGFpZnNlcWNybmVjY3hhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk3MDUwMzgsImV4cCI6MjA5NTI4MTAzOH0.EGPbNdb2BUUOzoLGeAOlG5wJ8EX8eKh5iA1tnFj46b0';
 const H={'apikey':KEY,'Authorization':'Bearer '+(window._authTokenTecnico||KEY),'Content-Type':'application/json','Accept':'application/json'};
 
+// ── Notificación al supervisor (Google Apps Script) ───────────
+// 1. Despliega notificar_guia.gs como Web App en script.google.com
+// 2. Pega la URL del deploy aquí (ej: 'https://script.google.com/macros/s/AKfy.../exec')
+// 3. Usa el mismo TOKEN_SEGURIDAD que definiste en el .gs
+var GAS_URL   = 'https://script.google.com/macros/s/AKfycbwGk2om-cvwIzdLUiDooRMCsa22LmGIhmpQ-Mtv6MhxuFQe1JuBZAaEcKtsVZqcbIqTMA/exec';
+var GAS_TOKEN = 'climapro_gs_2026';
+
 // Días límite por frecuencia para generar alerta
 const DIAS_ALERTA={mensual:45,bimestral:75,trimestral:105,cuatrimestral:135,semestral:195,anual:375};
 // Días para alerta "próximo" (80% del límite)
@@ -2005,9 +2012,66 @@ async function enviar(){
     var reporteParaPDF = reporte||{cliente:clienteSel?.nombre,tecnico,tipo_visita:document.getElementById('sel-tipo').value,fecha,obs_general:document.getElementById('obs-gen').value,req_presup:document.getElementById('req-presup').checked,presup_desc:document.getElementById('presup-desc').value||null,secciones:secs,recepcionado_por:recepciona,numero_guia:numGuia,es_spot:esSpot,firma_imagen:firmaBase64||null,spot_direccion:esSpot?clienteSel.direccion||null:null,spot_contacto:esSpot?clienteSel.contacto||null:null,id:reporte?.id};
     window._ultimoReporteEnviado = reporteParaPDF;
     setTimeout(()=>generarPDFGuia(reporteParaPDF),800);
+    notificarSupervisor(reporteParaPDF); // fire-and-forget, aislado
     // Recargar clientes para actualizar semáforo
     await cargarClientes();
   }catch(e){document.getElementById('alerta-envio').classList.add('show');document.getElementById('alerta-txt').textContent='Error: '+e.message;}
+}
+
+// ── Notificación al supervisor vía Google Apps Script ─────────
+// Aislada en try/catch y completamente async — nunca bloquea el wizard.
+// El PDF se genera en background con _prepararPDFCompartir (html2canvas).
+// Si la generación del PDF falla, el email se envía igualmente sin adjunto.
+async function notificarSupervisor(reporte) {
+  if (!GAS_URL) return; // no configurado aún
+  try {
+    var secs = reporte.secciones || [];
+    var nAlertas = 0, nProblemas = 0;
+    secs.forEach(function(s) {
+      (s.items || []).forEach(function(it) {
+        if (it.estado === 'alerta' || it.estado === 'al') nAlertas++;
+        if (it.estado === 'problema' || it.estado === 'pr') nProblemas++;
+      });
+    });
+    var partes = (reporte.fecha || '').split('-');
+    var fechaLegible = partes.length === 3 ? partes[2]+'/'+partes[1]+'/'+partes[0] : reporte.fecha || '';
+
+    var payload = {
+      token:        GAS_TOKEN,
+      numero_guia:  reporte.numero_guia || '—',
+      cliente:      reporte.cliente     || '—',
+      tecnico:      reporte.tecnico     || '—',
+      fecha:        fechaLegible,
+      tipo_visita:  reporte.tipo_visita || '—',
+      n_equipos:    secs.length,
+      n_alertas:    nAlertas,
+      n_problemas:  nProblemas,
+      req_presup:   reporte.req_presup  || false,
+      presup_desc:  reporte.presup_desc || '',
+      obs_general:  reporte.obs_general || '',
+    };
+
+    // Intentar generar y adjuntar el PDF (best-effort)
+    try {
+      var prep = await _prepararPDFCompartir(reporte);
+      var pdfBase64 = await new Promise(function(resolve, reject) {
+        var reader = new FileReader();
+        reader.onload  = function() { resolve(reader.result.split(',')[1]); };
+        reader.onerror = reject;
+        reader.readAsDataURL(prep.pdfBlob);
+      });
+      payload.pdf_base64 = pdfBase64;
+      payload.pdf_nombre = prep.nombreArchivo;
+    } catch(ePDF) {
+      console.warn('notificarSupervisor: PDF no generado, email sin adjunto:', ePDF);
+    }
+
+    // POST fire-and-forget — no necesitamos leer la respuesta
+    fetch(GAS_URL, { method:'POST', mode:'no-cors', body:JSON.stringify(payload) });
+
+  } catch(e) {
+    console.warn('notificarSupervisor:', e);
+  }
 }
 
 function reiniciar(){
@@ -3246,6 +3310,7 @@ async function enviarPendientes(){
       delete payload._fechaGuardado;
       var respData = await sbPost('reportes', payload);
       exitosos.push(p._pendienteId);
+      notificarSupervisor(payload); // fire-and-forget, aislado
 
       // Reflejar en la agenda del día, si esta visita correspondía a una tarea programada (aislado, no crítico)
       // El payload en cola nunca trae cliente_id, así que siempre se matchea por nombre (spot o no).
