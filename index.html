@@ -3310,7 +3310,10 @@ async function enviarPendientes(){
       delete payload._fechaGuardado;
       var respData = await sbPost('reportes', payload);
       exitosos.push(p._pendienteId);
-      notificarSupervisor(payload); // fire-and-forget, aislado
+      // Con await a propósito: sin él, N reportes en cola dispararían N
+      // generaciones de PDF (html2canvas) en paralelo y pueden colgar el
+      // celular. notificarSupervisor nunca lanza — su cuerpo es todo try/catch.
+      await notificarSupervisor(payload);
 
       // Reflejar en la agenda del día, si esta visita correspondía a una tarea programada (aislado, no crítico)
       // El payload en cola nunca trae cliente_id, así que siempre se matchea por nombre (spot o no).
