@@ -1333,10 +1333,16 @@ function construirPasos(){
     const div=document.createElement('div');div.className='step';div.id=`paso-${idx}`;
     const num=idx+2;
     div.innerHTML=`
-      <div class="topbar"><div class="topbar-row"><button class="back-btn" onclick="irAnterior()">←</button><div class="top-title">Checklist</div><div class="top-step">${num}/${total}</div></div><div class="prog-bar"><div class="prog-fill" style="width:${Math.round(num/total*100)}%"></div></div></div>
+      <div class="topbar"><div class="topbar-row"><button class="back-btn" onclick="irAnterior()">←</button><div class="top-title">Checklist</div><div class="top-step" id="topstep-${sid}">${num}/${total}</div></div><div class="prog-bar"><div class="prog-fill" id="progfill-${sid}" style="width:${Math.round(num/total*100)}%"></div></div></div>
       <div class="step-body">
-        ${genDots(total,num-1)}<div style="height:8px;"></div>
+        <div id="dots-${sid}">${genDots(total,num-1)}</div><div style="height:8px;"></div>
+        <div id="omitido-badge-${sid}" style="display:none;background:var(--gray);border:1px dashed var(--gray3);border-radius:var(--radius-sm);padding:14px;text-align:center;color:var(--text3);font-size:13px;margin-bottom:10px;">
+          🗑️ Este equipo fue omitido de esta visita — no aparecerá en el checklist ni en la guía.
+          <button type="button" onclick="incluirEquipoDeNuevo(${idx})" style="display:block;margin:8px auto 0;padding:6px 14px;border-radius:8px;border:0.5px solid var(--gray3);background:var(--white);font-size:12px;cursor:pointer;font-family:var(--font);">↩️ Incluir de nuevo</button>
+        </div>
+        <div id="contenido-${sid}">
         <div class="sec-header"><div class="sec-icon-big" style="background:${eq.color}">${eq.icon}</div><div class="sec-header-title">${eq.label}${eq.modoAbreviado?'<span class="tipo-badge tipo-parcial">Selecciona ítems</span>':''}</div><div class="sec-prog" id="prog-${sid}">0/${eq.items.length}</div></div>
+        <button type="button" onclick="omitirEquipo(${idx})" style="background:none;border:none;color:var(--text3);font-size:11px;text-decoration:underline;cursor:pointer;padding:0 0 10px;display:block;">🗑️ No incluir este equipo en esta visita</button>
         ${eq.modoAbreviado?`<div style="font-size:12px;color:var(--amber-dark);margin-bottom:8px;background:var(--amber-light);padding:6px 10px;border-radius:8px;">💡 Marca solo los ítems que revisaste en esta visita</div>`:''}
         ${eq.cantidad>1?`<div style="font-size:12px;color:var(--text3);margin-bottom:8px;background:var(--teal-light);padding:6px 10px;border-radius:8px;">📍 ${eq.cantidad} unidades · ${eq.ubicacion||''}</div>`:''}
         ${eq.descripcion?`<div style="font-size:12px;color:var(--teal-dark);margin-bottom:8px;background:var(--teal-light);padding:6px 10px;border-radius:8px;font-style:italic;">📋 ${eq.descripcion}</div>`:''}
@@ -1346,6 +1352,7 @@ function construirPasos(){
           <button class="foto-add-btn" onclick="addFoto('${sid}')"><span style="font-size:20px;">📸</span><span style="font-size:13px;color:var(--text2);">Agregar foto</span><span class="foto-counter" id="fc-${sid}">0 fotos</span></button>
           <div class="foto-grid" id="fg-${sid}"></div>
         </div></div>
+        </div>
       </div>
       <div class="step-footer"><button class="btn-prev" onclick="irAnterior()">←</button><button class="btn-next" onclick="irSig(${idx})">Siguiente →</button></div>`;
     cont.appendChild(div);renderItems(sid,eq.items);
@@ -1525,6 +1532,119 @@ async function subirFoto(file, carpeta){
   }
 }
 
+// ── Reintento de fotos que no llegaron a subirse a tiempo ──
+// Problema real: si el técnico envía la guía sin conexión (o con señal muy
+// mala), subirFoto() falla de inmediato (sin red) y el reporte queda guardado
+// con la cantidad de fotos correcta pero sin ninguna URL — la guía muestra el
+// ícono 📷 para siempre en vez de la foto real, porque nada reintentaba la
+// subida ni corregía el reporte ya guardado. Este bloque agrega ese reintento
+// (mientras la app siga abierta en el dispositivo — no sobrevive a cerrar la
+// app antes de recuperar señal; eso queda para una versión con IndexedDB).
+window._fotosPendientesPost = window._fotosPendientesPost || [];
+window._offlineIdAReporteId = window._offlineIdAReporteId || {};
+
+// Se llama desde los dos lugares donde se sube una foto (procesarFotoItem y
+// addFoto) en vez de asignar entrada.urlRemota directo, para poder también
+// aplicar el parche al reporte si este ya se había enviado mientras la foto
+// seguía subiendo.
+function manejarResultadoSubidaFoto(entrada, urlRemota){
+  if(!urlRemota) return; // falló o sin red — queda para el reintento por reconexión
+  entrada.urlRemota = urlRemota;
+  if(entrada._destino){
+    aplicarUrlFotoAReporte(entrada._destino.reporteId, entrada._destino.sid, entrada._destino.tipo, entrada._destino.itemLabel, urlRemota)
+      .then(function(){
+        entrada._destino=null;
+        var idx=window._fotosPendientesPost.indexOf(entrada);
+        if(idx>-1) window._fotosPendientesPost.splice(idx,1);
+      })
+      .catch(function(e){ console.warn('No se pudo aplicar foto recién subida al reporte:', e.message); });
+  }
+}
+
+// Recorre fotosItems/_fotosSeccion buscando fotos cuyo archivo ya se intentó
+// subir pero aún no tienen urlRemota, y las registra para reintento — se
+// llama justo después de guardar/enviar un reporte (online u offline).
+function registrarFotosPendientesPost(destinoBase){
+  Object.keys(fotosItems||{}).forEach(function(sid){
+    Object.keys(fotosItems[sid]||{}).forEach(function(itemIdx){
+      (fotosItems[sid][itemIdx]||[]).forEach(function(entrada){
+        if(entrada.file && !entrada.urlRemota && !entrada._destino){
+          entrada._destino=Object.assign({sid:sid,tipo:'item',itemLabel:entrada.label},destinoBase);
+          window._fotosPendientesPost.push(entrada);
+        }
+      });
+    });
+  });
+  Object.keys(window._fotosSeccion||{}).forEach(function(sid){
+    (window._fotosSeccion[sid]||[]).forEach(function(entrada){
+      if(entrada.file && !entrada.urlRemota && !entrada._destino){
+        entrada._destino=Object.assign({sid:sid,tipo:'seccion'},destinoBase);
+        window._fotosPendientesPost.push(entrada);
+      }
+    });
+  });
+}
+
+// Parcha el campo `secciones` de un reporte ya guardado en Supabase para
+// agregarle la URL de una foto que llegó tarde. Hace un fetch+patch (no hay
+// forma de actualizar solo un campo anidado del JSON vía REST de PostgREST).
+async function aplicarUrlFotoAReporte(reporteId, sid, tipo, itemLabel, url){
+  if(!reporteId) throw new Error('Sin id de reporte todavía');
+  var rows = await sbGet('reportes', 'id=eq.'+reporteId+'&select=secciones');
+  if(!rows || !rows[0]) throw new Error('Reporte no encontrado (id '+reporteId+')');
+  var secciones = rows[0].secciones || [];
+  var sec = secciones.find(function(s){ return s.id===sid; });
+  if(!sec) throw new Error('Sección '+sid+' no encontrada en el reporte');
+  if(tipo==='seccion'){
+    sec.urlsFotosSeccion = sec.urlsFotosSeccion || [];
+    sec.urlsFotosSeccion.push(url);
+  } else {
+    var item = (sec.items||[]).find(function(it){ return it.item===itemLabel; });
+    if(!item) throw new Error('Ítem "'+itemLabel+'" no encontrado en la sección '+sid);
+    item.urlsFotos = item.urlsFotos || [];
+    item.urlsFotos.push(url);
+  }
+  await sbPatch('reportes', reporteId, {secciones: secciones});
+}
+
+// Reintenta subir las fotos que quedaron pendientes (sin urlRemota) y, si
+// tienen éxito, corrige el reporte ya guardado. Se llama al recuperar
+// conexión (actualizarEstadoRed()). Solo sirve mientras la app sigue abierta
+// desde que se tomó la foto — es la limitación conocida de esta primera
+// versión del fix (ver nota arriba).
+async function reintentarFotosPendientes(){
+  if(!navigator.onLine) return;
+  if(!window._fotosPendientesPost || !window._fotosPendientesPost.length) return;
+  var pendientes = window._fotosPendientesPost.slice();
+  for(var i=0;i<pendientes.length;i++){
+    var entrada = pendientes[i];
+    var destino = entrada._destino;
+    if(!destino){
+      var idxLimpio=window._fotosPendientesPost.indexOf(entrada);
+      if(idxLimpio>-1) window._fotosPendientesPost.splice(idxLimpio,1);
+      continue;
+    }
+    if(!destino.reporteId && destino.idOffline){
+      var real = window._offlineIdAReporteId[destino.idOffline];
+      if(real) destino.reporteId = real;
+    }
+    if(!destino.reporteId) continue; // el reporte offline todavía no se sincronizó — se reintenta en la próxima reconexión
+    try{
+      if(!entrada.urlRemota){
+        var carpeta = destino.tipo==='seccion' ? ('secciones/'+destino.sid) : ('items/'+destino.sid+'-retry');
+        entrada.urlRemota = await subirFoto(entrada.file, carpeta);
+      }
+      if(!entrada.urlRemota) continue; // sigue sin poder subir, se reintenta después
+      await aplicarUrlFotoAReporte(destino.reporteId, destino.sid, destino.tipo, destino.itemLabel, entrada.urlRemota);
+      entrada._destino=null;
+      var idxOk=window._fotosPendientesPost.indexOf(entrada);
+      if(idxOk>-1) window._fotosPendientesPost.splice(idxOk,1);
+    }catch(e){
+      console.warn('Reintento de foto pendiente falló, se reintentará en la próxima reconexión:', e.message);
+    }
+  }
+}
+
 function procesarFotoItem(sid,i,item,file){
   fotosItems[sid]=fotosItems[sid]||{};
   fotosItems[sid][i]=fotosItems[sid][i]||[];
@@ -1534,7 +1654,7 @@ function procesarFotoItem(sid,i,item,file){
   fotosItems[sid][i].push(entrada);
   // Subir a Supabase Storage en segundo plano
   subirFoto(file,'items/'+sid+'-'+i).then(function(urlRemota){
-    if(urlRemota) entrada.urlRemota=urlRemota;
+    manejarResultadoSubidaFoto(entrada, urlRemota);
   });
 
   // Miniatura real con imagen
@@ -1746,11 +1866,11 @@ function addFoto(sid){
       if(!fotosSeccion) var fotosSeccion={};
       window._fotosSeccion=window._fotosSeccion||{};
       window._fotosSeccion[sid]=window._fotosSeccion[sid]||[];
-      var entrada={url:url,urlRemota:null,label:'Vista general'};
+      var entrada={url:url,urlRemota:null,label:'Vista general',file:file};
       window._fotosSeccion[sid].push(entrada);
       // Subir en segundo plano
       subirFoto(file,'secciones/'+sid).then(function(urlRemota){
-        if(urlRemota) entrada.urlRemota=urlRemota;
+        manejarResultadoSubidaFoto(entrada, urlRemota);
       });
       var el=document.createElement('div');
       el.className='foto-thumb';
@@ -1782,6 +1902,16 @@ function updFC(sid){const n=fotosCount[sid]||0;const el=document.getElementById(
 function irSig(idx){
   var sid='sec-'+idx;
   var eq=pasosChk[idx];
+  // Si este paso quedó marcado como omitido (ver omitirEquipo()) — puede
+  // pasar al reanudar un borrador guardado justo en el momento de omitir —
+  // se avanza directo, sin pedirle al técnico que evalúe un equipo que ya
+  // decidió excluir de la visita.
+  if(eq && eq._omitido){
+    guardarBorrador();
+    var sigOm=siguienteIdxActivo(idx);
+    activarStep(sigOm>-1?'paso-'+sigOm:'s-cierre');
+    return;
+  }
   var items=eq.items||[];
 
   // Validación 1: al menos 1 ítem debe estar evaluado
@@ -1827,19 +1957,110 @@ function irSig(idx){
 
   // Todo OK — avanzar
   guardarBorrador();
-  if(idx+1<pasosChk.length) activarStep('paso-'+(idx+1));
+  var sig=siguienteIdxActivo(idx);
+  if(sig>-1) activarStep('paso-'+sig);
   else activarStep('s-cierre');
 }
-function irAnterior(){const a=document.querySelector('.step.active');if(!a)return;const id=a.id;if(id==='paso-0')activarStep('s1');else if(id.startsWith('paso-')){const n=parseInt(id.split('-')[1]);activarStep(`paso-${n-1}`);}else if(id==='s-cierre'){const l=pasosChk.length-1;activarStep(l>=0?`paso-${l}`:'s1');}else if(id==='s-resumen')activarStep('s-cierre');}
+// ── Saltar equipos omitidos al navegar (ver omitirEquipo()) ──
+function siguienteIdxActivo(desde){
+  for(var j=desde+1;j<pasosChk.length;j++){ if(!pasosChk[j]._omitido) return j; }
+  return -1;
+}
+function anteriorIdxActivo(desde){
+  for(var j=desde-1;j>=0;j--){ if(!pasosChk[j]._omitido) return j; }
+  return -1;
+}
+function irAnterior(){const a=document.querySelector('.step.active');if(!a)return;const id=a.id;if(id==='paso-0')activarStep('s1');else if(id.startsWith('paso-')){const n=parseInt(id.split('-')[1]);const prev=anteriorIdxActivo(n);activarStep(prev>-1?`paso-${prev}`:'s1');}else if(id==='s-cierre'){const prev=anteriorIdxActivo(pasosChk.length);activarStep(prev>-1?`paso-${prev}`:'s1');}else if(id==='s-resumen')activarStep('s-cierre');}
+
+// ── Omitir un equipo a mitad de la visita ──
+// El técnico se da cuenta, ya avanzado el checklist, de que un equipo no
+// corresponde revisar en esta visita puntual (sigue existiendo en la ficha
+// del cliente para la próxima vez). En vez de renumerar pasosChk (rompería
+// los ids de paso/sección de TODOS los equipos siguientes, que están
+// horneados en el HTML ya renderizado), se marca con un flag `_omitido` y se
+// salta al navegar — los datos de los demás equipos quedan intactos.
+function omitirEquipo(idx){
+  var eq=pasosChk[idx];
+  if(!eq || eq._omitido) return;
+  var sidChk='sec-'+idx;
+  var yaEvaluados=Object.keys(estados[sidChk]||{}).filter(function(k){return estados[sidChk][k]!=null;}).length;
+  var quedan=pasosChk.filter(function(e,i){ return i!==idx && !e._omitido; }).length;
+  var msg='¿Quitar "'+eq.label+'" de esta visita?\n\nNo aparecerá en el checklist ni en la guía final. El equipo sigue en la ficha del cliente para la próxima visita.';
+  if(yaEvaluados>0) msg+='\n\n⚠️ Ya evaluaste '+yaEvaluados+' ítem'+(yaEvaluados>1?'s':'')+' de este equipo — se perderá esa evaluación.';
+  if(quedan===0) msg='"'+eq.label+'" es el único equipo que queda en esta visita.\n\nSi lo omites, no quedará ningún equipo para generar la guía — tendrás que incluir al menos uno para poder enviarla. Si en realidad quieres cancelar toda la visita, usa "Reiniciar" en vez de esto.\n\n¿Quitarlo de todas formas?';
+  if(!confirm(msg)) return;
+  eq._omitido=true;
+  // Limpiar cualquier evaluación parcial que hubiera quedado, para que no
+  // cuente en el resumen ni en el envío del reporte.
+  var sid='sec-'+idx;
+  estados[sid]={};obsItems[sid]={};fotosCount[sid]=0;fotosItems[sid]={};
+  var fg=document.getElementById('fg-'+sid); if(fg) fg.innerHTML='';
+  var fc=document.getElementById('fc-'+sid); if(fc) fc.textContent='0 fotos';
+  var badge=document.getElementById('omitido-badge-'+sid);
+  if(badge) badge.style.display='block';
+  var cont=document.getElementById('contenido-'+sid);
+  if(cont) cont.style.display='none';
+  recalcularProgresoPasos();
+  // Avanzar primero y recién ahí guardar el borrador, para que "dónde me
+  // quedé" apunte al siguiente paso real y no al equipo que se acaba de
+  // excluir (si no, reanudar un borrador guardado justo en este instante
+  // dejaría al técnico de vuelta parado en el paso omitido).
+  var sig=siguienteIdxActivo(idx);
+  activarStep(sig>-1?'paso-'+sig:'s-cierre');
+  guardarBorrador();
+}
+// Deshacer una omisión (por si fue sin querer) — solo visible mientras el
+// técnico sigue viendo ese mismo paso.
+function incluirEquipoDeNuevo(idx){
+  var eq=pasosChk[idx];
+  if(!eq) return;
+  eq._omitido=false;
+  var sid='sec-'+idx;
+  var cont=document.getElementById('contenido-'+sid);
+  if(cont) cont.style.display='';
+  var badge=document.getElementById('omitido-badge-'+sid);
+  if(badge) badge.style.display='none';
+  recalcularProgresoPasos();
+  guardarBorrador();
+}
+// Recalcula los contadores "N/Total" y los puntitos de progreso de los pasos
+// que aún no se omiten, para que la numeración visible no salte pasos
+// fantasma. No toca ninguna evaluación ni foto ya guardada.
+function recalcularProgresoPasos(){
+  var activos=[];
+  pasosChk.forEach(function(eq,i){ if(!eq._omitido) activos.push(i); });
+  var total=activos.length+3;
+  activos.forEach(function(idx,pos){
+    var sid='sec-'+idx;
+    var num=pos+2;
+    var ts=document.getElementById('topstep-'+sid); if(ts) ts.textContent=num+'/'+total;
+    var pf=document.getElementById('progfill-'+sid); if(pf) pf.style.width=Math.round(num/total*100)+'%';
+    var dw=document.getElementById('dots-'+sid); if(dw) dw.innerHTML=genDots(total,num-1);
+  });
+  var cn=document.getElementById('cierre-num'); if(cn) cn.textContent=(total-1)+'/'+total;
+  var rn=document.getElementById('resumen-num'); if(rn) rn.textContent=total+'/'+total;
+  var dc=document.getElementById('dots-cierre'); if(dc) dc.innerHTML=genDots(total,total-2);
+  var dr=document.getElementById('dots-resumen'); if(dr) dr.innerHTML=genDots(total,total-1);
+}
 function irResumen(){
   // Verificar que hay equipos evaluados
   if(!pasosChk||pasosChk.length===0){
     alert('No hay equipos para revisar. Vuelve al inicio y selecciona un cliente.');
     return;
   }
+  // Si se omitieron todos los equipos de la visita (uno por uno, con
+  // omitirEquipo()) no queda nada que reportar — bloquear acá en vez de
+  // dejar seguir hasta el envío con una guía vacía.
+  if(pasosChk.every(function(eq){ return eq._omitido; })){
+    alert('Omitiste todos los equipos de esta visita — no queda ninguno para generar la guía. Vuelve atrás e incluye al menos uno, o usa "Reiniciar" si quieres cancelar toda la visita.');
+    var primerIdx=siguienteIdxActivo(-1);
+    activarStep(primerIdx>-1?'paso-'+primerIdx:'paso-0');
+    return;
+  }
   // Verificar que todos los equipos tienen al menos 1 item evaluado
   var equiposSinEvaluar=[];
   pasosChk.forEach(function(eq,idx){
+    if(eq._omitido) return; // no se considera en esta visita
     var sid='sec-'+idx;
     // Forzar OK en cualquier ítem chequeado sin estado definido
     eq.items.forEach(function(item,i){
@@ -1895,13 +2116,13 @@ function activarStep(id){document.querySelectorAll('.step').forEach(s=>s.classLi
 
 function genResumen(){
   let ok=0,al=[],pr=[],tf=0;
-  pasosChk.forEach((eq,idx)=>{const sid=`sec-${idx}`;eq.items.forEach((item,i)=>{const e=estados[sid]?.[i]||'ok';if(e==='ok')ok++;else if(e==='al')al.push({sec:eq.label,item,obs:obsItems[sid]?.[i]||'',fotos:(fotosItems[sid]||{})[i]||[]});else if(e==='pr')pr.push({sec:eq.label,item,obs:obsItems[sid]?.[i]||'',fotos:(fotosItems[sid]||{})[i]||[]});});tf+=(fotosCount[sid]||0);});
+  pasosChk.forEach((eq,idx)=>{if(eq._omitido)return;const sid=`sec-${idx}`;eq.items.forEach((item,i)=>{const e=estados[sid]?.[i]||'ok';if(e==='ok')ok++;else if(e==='al')al.push({sec:eq.label,item,obs:obsItems[sid]?.[i]||'',fotos:(fotosItems[sid]||{})[i]||[]});else if(e==='pr')pr.push({sec:eq.label,item,obs:obsItems[sid]?.[i]||'',fotos:(fotosItems[sid]||{})[i]||[]});});tf+=(fotosCount[sid]||0);});
   document.getElementById('resumen-contenido').innerHTML=`
     <div class="resumen-row"><span class="resumen-key">Cliente</span><span>${clienteSel?.nombre||'—'}</span></div>
     <div class="resumen-row"><span class="resumen-key">Fecha</span><span>${document.getElementById('visita-fecha').value}</span></div>
     <div class="resumen-row"><span class="resumen-key">Técnico</span><span>${getTecnico()}</span></div>
     <div class="resumen-row"><span class="resumen-key">Tipo</span><span>${document.getElementById('sel-tipo').value}${esTipoParcial()?'<span style="font-size:10px;background:var(--amber-light);color:var(--amber-dark);padding:1px 6px;border-radius:8px;margin-left:4px;">Parcial</span>':''}</span></div>
-    <div class="resumen-row"><span class="resumen-key">Equipos</span><span>${pasosChk.length}</span></div>
+    <div class="resumen-row"><span class="resumen-key">Equipos</span><span>${pasosChk.filter(e=>!e._omitido).length}${pasosChk.some(e=>e._omitido)?' <span style="font-size:10px;color:var(--text3);">('+pasosChk.filter(e=>e._omitido).length+' omitido'+(pasosChk.filter(e=>e._omitido).length>1?'s':'')+')</span>':''}</span></div>
     <div class="resumen-row"><span class="resumen-key">Ítems OK</span><span style="color:var(--green-dark);font-weight:500;">✅ ${ok}</span></div>
     <div class="resumen-row"><span class="resumen-key">Alertas</span><span style="color:var(--amber-dark);font-weight:500;">⚠️ ${al.length}</span></div>
     <div class="resumen-row"><span class="resumen-key">Problemas</span><span style="color:var(--red-dark);font-weight:500;">❌ ${pr.length}</span></div>
@@ -1936,6 +2157,9 @@ async function enviar(){
       await new Promise(r=>setTimeout(r,300));
     }
     const secs=pasosChk.map((eq,idx)=>{
+    // Equipos que el técnico omitió a mitad de la visita (ver omitirEquipo())
+    // no deben aparecer en el reporte ni en la guía final.
+    if(eq._omitido) return null;
     const sid='sec-'+idx;
     return{
       id:sid,label:eq.label,tipo:eq.tipo,ubicacion:eq.ubicacion,
@@ -1952,7 +2176,14 @@ async function enviar(){
         urls:arr.map(f=>f.urlRemota).filter(Boolean)
       }))
     };
-  }).filter(s=>s.items.length>0);
+  }).filter(Boolean).filter(s=>s.items.length>0);
+  // Defensa adicional (no debería pasar si irResumen() hizo su chequeo, pero
+  // evita en cualquier caso guardar un reporte sin ningún equipo).
+  if(secs.length===0){
+    document.getElementById('alerta-envio').classList.add('show');
+    document.getElementById('alerta-txt').textContent='No queda ningún equipo evaluado para reportar. Vuelve atrás e incluye al menos uno.';
+    return;
+  }
   try{
     const tecnico=getTecnico();
     const fecha=document.getElementById('visita-fecha').value||new Date().toISOString().split('T')[0];
@@ -1995,6 +2226,10 @@ async function enviar(){
       spot_contacto:clienteSel&&clienteSel._spot?clienteSel.contacto||null:null});
     
     const reporte=data[0];
+    // Si alguna foto no alcanzó a subirse dentro de los 8s de espera de arriba,
+    // queda registrada para reintento y corrección automática del reporte
+    // recién guardado (ver reintentarFotosPendientes()).
+    if(reporte && reporte.id) registrarFotosPendientesPost({reporteId:reporte.id});
     document.getElementById('enviado-id').textContent='Guia N° '+(reporte?.numero_guia||numGuia);
     activarStep('s-enviado');
     borrarBorrador();
@@ -2905,7 +3140,11 @@ function actualizarEstadoRed(){
       setTimeout(function(){ onBar.classList.remove('show'); }, 3000);
     }
     // Intentar enviar reportes pendientes
-    enviarPendientes();
+    enviarPendientes().then(function(){
+      // Recién después de que enviarPendientes() resuelva los ids reales de
+      // los reportes offline, reintentar las fotos que quedaron sin subir.
+      reintentarFotosPendientes();
+    });
     // Intentar sincronizar reposiciones (cartucho/sellos) que quedaron pendientes offline
     enviarReposicionesPendientes();
     // Re-sincronizar datos
@@ -3326,10 +3565,15 @@ async function enviarPendientes(){
       var respData = await sbPost('reportes', payload);
       exitosos.push(p._pendienteId);
 
+      // Anotar el id real que le tocó a este reporte antes offline, para que
+      // reintentarFotosPendientes() pueda corregirlo si alguna foto tomada sin
+      // señal recién termina de subirse después de este punto.
+      var repIdOffline = (respData && respData[0]) ? respData[0].id : null;
+      if(repIdOffline) window._offlineIdAReporteId[p._pendienteId] = repIdOffline;
+
       // Reflejar en la agenda del día, si esta visita correspondía a una tarea programada (aislado, no crítico)
       // El payload en cola nunca trae cliente_id, así que siempre se matchea por nombre (spot o no).
       if(typeof agendaAutoCompletar==='function'){
-        var repIdOffline = (respData && respData[0]) ? respData[0].id : null;
         agendaAutoCompletar(null, payload.cliente, payload.fecha, payload.tecnico, repIdOffline);
       }
 
@@ -3393,6 +3637,11 @@ enviar = async function(){
       await new Promise(function(r){setTimeout(r,3000);});
 
       var secs=pasosChk.map(function(eq,idx){
+        // Equipos omitidos a mitad de la visita no van en el reporte offline
+        // tampoco (ver omitirEquipo()) — importante: acá el estado por
+        // defecto es 'ok' (no null), así que sin este guard quedarían
+        // igual incluidos como "todo OK" en vez de excluidos.
+        if(eq._omitido) return null;
         var sid='sec-'+idx;
         return{
           id:sid,label:eq.label,tipo:eq.tipo,ubicacion:eq.ubicacion,
@@ -3405,7 +3654,14 @@ enviar = async function(){
           fotos:fotosCount[sid]||0,
           urlsFotosSeccion:(window._fotosSeccion&&window._fotosSeccion[sid]||[]).map(function(f){return f.urlRemota;}).filter(Boolean)
         };
-      }).filter(function(s){return s.items.length>0;});
+      }).filter(Boolean).filter(function(s){return s.items.length>0;});
+
+      // Defensa adicional, mismo criterio que en el flujo online (ver enviar()).
+      if(secs.length===0){
+        document.getElementById('alerta-envio').classList.add('show');
+        document.getElementById('alerta-txt').textContent='No queda ningún equipo evaluado para reportar. Vuelve atrás e incluye al menos uno.';
+        return;
+      }
 
       var payload={
         cliente:clienteSel?.nombre,tecnico,
@@ -3421,6 +3677,10 @@ enviar = async function(){
       };
 
       var idOffline = guardarReportePendiente(payload);
+      // Fotos que no llegaron a subirse por falta de señal: quedan registradas
+      // para reintentar apenas se sincronice este reporte (ver enviarPendientes()
+      // + reintentarFotosPendientes()).
+      registrarFotosPendientesPost({idOffline:idOffline});
       document.getElementById('enviado-id').textContent='Guardado · '+idOffline;
       activarStep('s-enviado');
       borrarBorrador();
@@ -3445,6 +3705,11 @@ enviar = async function(){
 // ── Sincronizar al inicio ─────────────────────────────────
 actualizarEstadoRed();
 mostrarBadgePendientes();
+// Reintento periódico de fotos pendientes: cubre el caso en que la conexión
+// nunca llegó a caerse (así que el evento 'online' no dispara) pero alguna
+// foto igual demoró más de los 8s de espera al enviar. Solo hace trabajo si
+// window._fotosPendientesPost tiene algo pendiente.
+setInterval(function(){ if(navigator.onLine) reintentarFotosPendientes(); }, 15000);
 
 // ══════════════════════════════════════════════════════════
 // GUARDADO AUTOMÁTICO DE BORRADOR
@@ -3525,6 +3790,10 @@ function guardarBorrador(){
       // borrador sin conexión podría recalcular el pre-orden por ubicación
       // y desalinear los estados ya guardados del checklist con el equipo.
       ordenEquiposIds: equiposCli ? equiposCli.map(function(e){ return e.id; }) : [],
+      // Equipos que el técnico omitió a mitad de esta visita (ver omitirEquipo())
+      // — se guardan por id para poder reponer el flag al reanudar el borrador,
+      // ya que iniciarVisita() reconstruye pasosChk desde cero.
+      equiposOmitidosIds: (pasosChk||[]).filter(function(e){ return e._omitido; }).map(function(e){ return e.id; }),
       esSpot:        clienteSel ? (clienteSel._spot||false) : false,
       spotEquiposChecked: (typeof TIPOS_SPOT!=='undefined') ? TIPOS_SPOT.filter(function(t){
         var cb=document.getElementById('spot-eq-'+t.key);
@@ -3691,6 +3960,23 @@ async function continuarBorrador(){
   if(b.estados && Object.keys(b.estados).length > 0){
     // Iniciar visita para construir los pasos
     await iniciarVisita();
+
+    // Restaurar equipos que se habían omitido a mitad de la visita anterior
+    // (ver omitirEquipo()) — iniciarVisita() reconstruye pasosChk desde cero,
+    // así que el flag _omitido no sobrevive solo, hay que reponerlo por id.
+    if(b.equiposOmitidosIds && b.equiposOmitidosIds.length>0 && pasosChk && pasosChk.length>0){
+      pasosChk.forEach(function(eq,idx){
+        if(b.equiposOmitidosIds.indexOf(eq.id)!==-1){
+          eq._omitido=true;
+          var sid='sec-'+idx;
+          var badge=document.getElementById('omitido-badge-'+sid);
+          if(badge) badge.style.display='block';
+          var cont=document.getElementById('contenido-'+sid);
+          if(cont) cont.style.display='none';
+        }
+      });
+      recalcularProgresoPasos();
+    }
 
     // Restaurar estados y observaciones
     estados  = b.estados  || {};
