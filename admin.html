@@ -1484,7 +1484,11 @@ function abrirEdicionGuia(){
 
   (r.secciones||[]).forEach((s,si)=>{
     html+=`<div style="border:0.5px solid var(--gray2);border-radius:8px;margin-bottom:8px;overflow:hidden;">
-      <div style="padding:8px 10px;background:var(--gray);font-size:12px;font-weight:600;">${s.label}</div>`;
+      <div style="padding:8px 10px;background:var(--gray);">
+        <label style="font-size:10px;color:var(--text3);display:block;margin-bottom:3px;">Título del equipo</label>
+        <input type="text" spellcheck="true" id="edit-label-${si}" value="${(s.label||'').replace(/"/g,'&quot;')}" style="width:100%;font-size:12px;font-weight:600;padding:5px 8px;border-radius:6px;border:0.5px solid var(--gray3);background:var(--white);font-family:var(--font);">
+        ${s.tipo==='otro'?`<input type="text" spellcheck="true" id="edit-descripcion-${si}" placeholder="Descripción / detalle (aparece junto al título en la guía)" value="${(s.descripcion||'').replace(/"/g,'&quot;')}" style="width:100%;font-size:11px;padding:5px 8px;border-radius:6px;border:0.5px solid var(--gray3);background:var(--white);font-family:var(--font);margin-top:5px;">`:''}
+      </div>`;
     (s.items||[]).forEach((i,ii)=>{
       html+=`<div style="padding:8px 10px;border-top:0.5px solid var(--gray2);">
         <div style="font-size:12px;font-weight:500;margin-bottom:4px;">${i.item}</div>
@@ -1547,6 +1551,8 @@ function _diffEdicionGuia(original, nuevo){
   const oldSecs=original.secciones||[], newSecs=nuevo.secciones||[];
   newSecs.forEach((s,si)=>{
     const oldS=oldSecs[si];
+    if(oldS && (oldS.label||'')!==(s.label||''))cambios.push(`Título de equipo: "${oldS.label||'—'}" → "${s.label||'—'}"`);
+    if(oldS && (oldS.descripcion||'')!==(s.descripcion||''))cambios.push(`"${s.label}": descripción del equipo editada`);
     (s.items||[]).forEach((i,ii)=>{
       const oldI=oldS?.items?.[ii];
       if(!oldI)return;
@@ -1581,8 +1587,12 @@ async function guardarEdicionGuia(){
     // Reconstruir secciones con los nuevos estados/observaciones/fotos
     const nuevasSecciones=(r.secciones||[]).map((s,si)=>{
       const fotosSeccion=(_editFotos.seccion[si]||[]).filter(f=>!f.removed).map(f=>f.urlRemota).filter(Boolean);
+      const labelInput=document.getElementById(`edit-label-${si}`);
+      const descInput=document.getElementById(`edit-descripcion-${si}`);
       return {
         ...s,
+        label:labelInput?(labelInput.value.trim()||s.label):s.label,
+        descripcion:s.tipo==='otro'?(descInput?(descInput.value.trim()||null):(s.descripcion||null)):(s.descripcion||null),
         fotos:fotosSeccion.length,
         urlsFotosSeccion:fotosSeccion,
         items:(s.items||[]).map((i,ii)=>{
