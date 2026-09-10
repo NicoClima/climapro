@@ -941,14 +941,54 @@ function calcularAlerta(cliente, ultimaVisitaFecha){
 }
 
 // ── CARGA DE DATOS ───────────────────────────────────────
+// ── Última visita por cliente ─────────────────────────────────
+// Antes esto se resolvía con `sbGet('reportes','order=fecha.desc&select=cliente,fecha')`:
+// un scan completo de la tabla `reportes` en CADA carga del wizard, solo para
+// calcular un máximo por cliente en JavaScript. Con el versionado de guías
+// (que nunca borra filas) eso agotó el presupuesto de Disk IO de Supabase.
+//
+// Ahora lo calcula Postgres y devuelve una fila por cliente, no una por reporte.
+// Ver fix_disk_io.sql — crea la vista `v_ultima_visita` y el índice compuesto.
+//
+// El fallback existe para que el orden de despliegue no importe: si este HTML
+// se sube ANTES de correr el SQL, la vista no existe todavía y se usa la
+// consulta vieja. Así la app nunca queda inutilizable.
+// null = sin probar · true = la vista existe · false = no existe en esta base
+var _vistaUltimaVisita = null;
+
+async function obtenerUltimasVisitas(){
+  if(_vistaUltimaVisita !== false){
+    try{
+      var filas = await sbGet('v_ultima_visita','select=cliente,ultima_visita');
+      _vistaUltimaVisita = true;
+      var mapa = {};
+      filas.forEach(function(f){ if(f.cliente) mapa[f.cliente] = f.ultima_visita; });
+      return mapa;
+    }catch(e){
+      // Distinguir "la vista no existe" de "no hay red":
+      //   · sbGet lanza Error(texto) cuando hubo respuesta HTTP de error (404/403)
+      //   · fetch lanza TypeError cuando no hubo conexión
+      // Si fue falla de red NO reintentamos con la consulta pesada: relanzamos
+      // para que cargarClientes caiga de inmediato a su caché local. Reintentar
+      // duplicaría el tiempo de espera del técnico en terreno con mala señal.
+      if(e instanceof TypeError) throw e;
+      // Respuesta HTTP de error → la vista no está en esta base. Se recuerda
+      // para no repetir el request fallido en cada recarga de esta sesión.
+      _vistaUltimaVisita = false;
+      console.warn('v_ultima_visita no disponible en esta base; usando consulta completa. Aplicar fix_disk_io.sql.', e && e.message);
+    }
+  }
+  var reportes = await sbGet('reportes','order=fecha.desc&select=cliente,fecha');
+  var m = {};
+  reportes.forEach(function(r){ if(r.cliente && !m[r.cliente]) m[r.cliente] = r.fecha; });
+  return m;
+}
+
 async function cargarClientes(){
   try{
     clientes=await sbGet('clientes','order=nombre.asc&activo=eq.true');
-    // Cargar última visita por cliente
-    const reportes=await sbGet('reportes','order=fecha.desc&select=cliente,fecha');
-    // Mapa: nombre_cliente → fecha más reciente
-    const ultimaVisita={};
-    reportes.forEach(r=>{if(r.cliente&&!ultimaVisita[r.cliente])ultimaVisita[r.cliente]=r.fecha;});
+    // Cargar última visita por cliente (vía vista agregada — ver obtenerUltimasVisitas)
+    const ultimaVisita=await obtenerUltimasVisitas();
     // Agregar info de alerta a cada cliente
     clientes=clientes.map(c=>({...c,_ultimaVisita:ultimaVisita[c.nombre]||null,_alerta:calcularAlerta(c,ultimaVisita[c.nombre]||null)}));
     if(typeof actualizarSelect==='function') actualizarSelect();
@@ -3444,9 +3484,7 @@ cargarClientes = async function(){
     // Intentar red y actualizar caché
     try{
       var clis = await sbGet('clientes','order=nombre.asc&activo=eq.true');
-      var reportes = await sbGet('reportes','order=fecha.desc&select=cliente,fecha');
-      var ultimaVisita={};
-      reportes.forEach(function(r){if(r.cliente&&!ultimaVisita[r.cliente])ultimaVisita[r.cliente]=r.fecha;});
+      var ultimaVisita = await obtenerUltimasVisitas();
       clientes=clis.map(function(c){return Object.assign({},c,{
         _ultimaVisita:ultimaVisita[c.nombre]||null,
         _alerta:calcularAlerta(c,ultimaVisita[c.nombre]||null)
