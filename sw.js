@@ -1,8 +1,8 @@
-// ClimaPro Service Worker v4
+// ClimaPro Service Worker v7
 // IMPORTANTE: cada vez que se suban cambios a index.html/admin.html,
 // subir este archivo también (con CACHE_NAME incrementado) para forzar
 // que los celulares descarten la versión vieja guardada localmente.
-const CACHE_NAME = 'climapro-v4';
+const CACHE_NAME = 'climapro-v7';
 const CACHE_URLS = [
   './',
   './index.html',

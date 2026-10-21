@@ -1149,6 +1149,8 @@ function verDetalleVisita(r){
     });
     html+='</div>';
   });
+  if(r.estado_general)html+=`<div style="font-size:12px;color:var(--text2);margin-bottom:8px;"><strong>Estado general:</strong> ${r.estado_general}</div>`;
+  if(r.trabajos)html+=`<div style="background:var(--gray);border-radius:8px;padding:8px 10px;font-size:12px;color:var(--text2);margin-bottom:8px;"><strong>Trabajos realizados:</strong> ${r.trabajos}</div>`;
   if(r.obs_general)html+=`<div style="background:var(--gray);border-radius:8px;padding:8px 10px;font-size:12px;color:var(--text2);margin-bottom:8px;"><strong>Observaciones:</strong> ${r.obs_general}</div>`;
   if(r.req_presup&&r.presup_desc)html+=`<div style="background:var(--amber-light);border-radius:8px;padding:8px 10px;font-size:12px;color:var(--amber-dark);margin-bottom:8px;">💰 <strong>Presupuesto:</strong> ${r.presup_desc}</div>`;
   if(r.nota_registro)html+=`<div style="background:var(--blue-light);border-radius:8px;padding:8px 10px;font-size:12px;color:var(--blue-dark);margin-bottom:8px;">📝 <strong>Nota de registro:</strong> ${r.nota_registro}</div>`;
@@ -2269,7 +2271,7 @@ async function enviar(){
       console.warn('Correlativo fallback:',eCorr);
     }
     const esSpot=clienteSel&&clienteSel._spot?true:false;
-    const data=await sbPost('reportes',{cliente:clienteSel?.nombre,tecnico,tipo_visita:document.getElementById('sel-tipo').value,fecha,obs_general:document.getElementById('obs-gen').value,req_presup:document.getElementById('req-presup').checked,presup_desc:document.getElementById('presup-desc').value||null,secciones:secs,log_cambios:logInicial,nota_registro:notaRegistro,recepcionado_por:recepciona,numero_guia:numGuia,es_spot:esSpot,
+    const data=await sbPost('reportes',{cliente:clienteSel?.nombre,tecnico,tipo_visita:document.getElementById('sel-tipo').value,fecha,obs_general:document.getElementById('obs-gen').value,trabajos:(document.getElementById('trabajos').value||'').trim()||null,estado_general:document.getElementById('estado-general').value||null,req_presup:document.getElementById('req-presup').checked,presup_desc:document.getElementById('presup-desc').value||null,secciones:secs,log_cambios:logInicial,nota_registro:notaRegistro,recepcionado_por:recepciona,numero_guia:numGuia,es_spot:esSpot,
       firma_imagen:firmaBase64||null,
       spot_direccion:clienteSel&&clienteSel._spot?clienteSel.direccion||null:null,
       spot_contacto:clienteSel&&clienteSel._spot?clienteSel.contacto||null:null});
@@ -2300,7 +2302,7 @@ async function enviar(){
       });
     }
     // Generar PDF automáticamente
-    var reporteParaPDF = reporte||{cliente:clienteSel?.nombre,tecnico,tipo_visita:document.getElementById('sel-tipo').value,fecha,obs_general:document.getElementById('obs-gen').value,req_presup:document.getElementById('req-presup').checked,presup_desc:document.getElementById('presup-desc').value||null,secciones:secs,recepcionado_por:recepciona,numero_guia:numGuia,es_spot:esSpot,firma_imagen:firmaBase64||null,spot_direccion:esSpot?clienteSel.direccion||null:null,spot_contacto:esSpot?clienteSel.contacto||null:null,id:reporte?.id};
+    var reporteParaPDF = reporte||{cliente:clienteSel?.nombre,tecnico,tipo_visita:document.getElementById('sel-tipo').value,fecha,obs_general:document.getElementById('obs-gen').value,trabajos:(document.getElementById('trabajos').value||'').trim()||null,estado_general:document.getElementById('estado-general').value||null,req_presup:document.getElementById('req-presup').checked,presup_desc:document.getElementById('presup-desc').value||null,secciones:secs,recepcionado_por:recepciona,numero_guia:numGuia,es_spot:esSpot,firma_imagen:firmaBase64||null,spot_direccion:esSpot?clienteSel.direccion||null:null,spot_contacto:esSpot?clienteSel.contacto||null:null,id:reporte?.id};
     window._ultimoReporteEnviado = reporteParaPDF;
     setTimeout(()=>generarPDFGuia(reporteParaPDF),800);
     notificarSupervisor(reporteParaPDF); // fire-and-forget, aislado
@@ -2343,6 +2345,8 @@ async function notificarSupervisor(reporte) {
       req_presup:   reporte.req_presup  || false,
       presup_desc:  reporte.presup_desc || '',
       obs_general:  reporte.obs_general || '',
+      trabajos:     reporte.trabajos || '',
+      estado_general: reporte.estado_general || '',
     };
 
     // PDF best-effort, en su propio try/catch
@@ -2374,7 +2378,12 @@ function reiniciar(){
   var sw=document.getElementById('spot-wrap');if(sw)sw.style.display='none';
   var sn=document.getElementById('spot-nombre');if(sn)sn.value='';
   var sd=document.getElementById('spot-direccion');if(sd)sd.value='';
-  var sc=document.getElementById('spot-contacto');if(sc)sc.value='';document.getElementById('btn-iniciar').disabled=true;document.getElementById('nota-registro').value='';document.getElementById('recepciona-nombre').value='';document.getElementById('tecnico-otro-wrap').style.display='none';document.getElementById('tecnico-otro').value='';var _fd=document.getElementById('visita-fecha');if(_fd)_fd.value=new Date().toISOString().split('T')[0];var _hi=document.getElementById('hora-inicio');if(_hi)_hi.value=horaActualHHMM();limpiarFirma();if(typeof cargarAgendaWizard==='function')cargarAgendaWizard();activarStep('s1');}
+  var sc=document.getElementById('spot-contacto');if(sc)sc.value='';document.getElementById('btn-iniciar').disabled=true;document.getElementById('nota-registro').value='';document.getElementById('recepciona-nombre').value='';document.getElementById('tecnico-otro-wrap').style.display='none';document.getElementById('tecnico-otro').value='';var _fd=document.getElementById('visita-fecha');if(_fd)_fd.value=new Date().toISOString().split('T')[0];var _hi=document.getElementById('hora-inicio');if(_hi)_hi.value=horaActualHHMM();limpiarFirma();
+  // Campos del Cierre (sesión 41): antes no se limpiaban y pasaban a la visita siguiente
+  ['obs-gen','trabajos','presup-desc','hora-fin'].forEach(function(id){var e=document.getElementById(id);if(e)e.value='';});
+  var _rp=document.getElementById('req-presup');if(_rp){_rp.checked=false;togglePresup();}
+  var _eg=document.getElementById('estado-general');if(_eg)_eg.selectedIndex=0;
+  if(typeof cargarAgendaWizard==='function')cargarAgendaWizard();activarStep('s1');}
 function togglePresup(){document.getElementById('presup-wrap').style.display=document.getElementById('req-presup').checked?'block':'none';}
 
 // Manejador de dibujo genérico: se usa tanto para el canvas chico (firma-canvas)
@@ -2407,7 +2416,7 @@ function limpiarFirma(){if(firmaCtx)firmaCtx.clearRect(0,0,320,110);firmaOk=fals
 
 // ── Firma en pantalla completa ──
 let firmaFullCtx=null;
-function estilarFirmaFull(){if(firmaFullCtx){firmaFullCtx.strokeStyle='#1D9E75';firmaFullCtx.lineWidth=3;firmaFullCtx.lineCap='round';firmaFullCtx.lineJoin='round';}}
+function estilarFirmaFull(){if(firmaFullCtx){firmaFullCtx.strokeStyle='#1D9E75';firmaFullCtx.lineWidth=5;firmaFullCtx.lineCap='round';firmaFullCtx.lineJoin='round';}}
 function initFirmaFull(){
   const full=document.getElementById('firma-canvas-full');
   if(!full) return;
@@ -2429,11 +2438,37 @@ function abrirFirmaPantallaCompleta(){
   var w=Math.max(200,Math.round(r.width)), h=Math.max(200,Math.round(r.height));
   full.width=w; full.height=h;
   estilarFirmaFull();
-  // Si ya había una firma en el recuadro chico, se trae ampliada como punto de partida
+  // Si ya había una firma en el recuadro chico, se trae como punto de partida
+  // a escala 1:1 y centrada (antes se estiraba a todo el canvas y se deformaba).
   var chico=document.getElementById('firma-canvas');
   if(firmaOk && chico){
-    firmaFullCtx.drawImage(chico, 0, 0, chico.width, chico.height, 0, 0, w, h);
+    firmaFullCtx.drawImage(chico, Math.round((w-chico.width)/2), Math.round((h-chico.height)/2));
   }
+}
+// Caja mínima que contiene el trazo (píxeles no transparentes) de un canvas.
+function _firmaBBox(canvas){
+  var w=canvas.width, h=canvas.height;
+  var d=canvas.getContext('2d').getImageData(0,0,w,h).data;
+  var minX=w, minY=h, maxX=-1, maxY=-1;
+  for(var y=0;y<h;y++){
+    for(var x=0;x<w;x++){
+      if(d[(y*w+x)*4+3]>0){ if(x<minX)minX=x; if(x>maxX)maxX=x; if(y<minY)minY=y; if(y>maxY)maxY=y; }
+    }
+  }
+  return maxX<0 ? null : {x:minX, y:minY, w:maxX-minX+1, h:maxY-minY+1};
+}
+// Copia la firma de pantalla completa al recuadro chico: recorta al trazo,
+// escala UNIFORME (misma proporción en ancho y alto, nunca se deforma),
+// nunca agranda más allá de 1:1 y la centra en el recuadro.
+function _copiarFirmaAjustada(origen, destinoCtx, dw, dh){
+  var bb=_firmaBBox(origen);
+  destinoCtx.clearRect(0,0,dw,dh);
+  if(!bb) return false;
+  var margen=6;
+  var esc=Math.min((dw-2*margen)/bb.w, (dh-2*margen)/bb.h, 1);
+  var tw=bb.w*esc, th=bb.h*esc;
+  destinoCtx.drawImage(origen, bb.x, bb.y, bb.w, bb.h, (dw-tw)/2, (dh-th)/2, tw, th);
+  return true;
 }
 function limpiarFirmaFull(){
   var full=document.getElementById('firma-canvas-full');
@@ -2444,10 +2479,9 @@ function cerrarFirmaPantallaCompleta(guardar){
   var full=document.getElementById('firma-canvas-full');
   var chico=document.getElementById('firma-canvas');
   if(guardar && full && chico && firmaCtx){
-    firmaCtx.clearRect(0,0,chico.width,chico.height);
-    firmaCtx.drawImage(full, 0, 0, full.width, full.height, 0, 0, chico.width, chico.height);
-    firmaOk=true;
-    var ok=document.getElementById('firma-ok'); if(ok) ok.style.display='inline';
+    var hayTrazo=_copiarFirmaAjustada(full, firmaCtx, chico.width, chico.height);
+    firmaOk=hayTrazo;
+    var ok=document.getElementById('firma-ok'); if(ok) ok.style.display=hayTrazo?'inline':'none';
     if(typeof guardarBorrador==='function') guardarBorrador();
   }
   if(overlay) overlay.style.display='none';
@@ -2759,6 +2793,7 @@ function construirHTMLGuia(r){
     <div class="data-row"><span class="data-key">Fecha:</span><span class="data-val">${r.fecha||'—'}</span></div>
     <div class="data-row"><span class="data-key">Tipo:</span><span class="data-val">${r.tipo_visita||'—'}</span></div>
     <div class="data-row"><span class="data-key">Técnico:</span><span class="data-val">${r.tecnico||'—'}</span></div>
+    ${r.estado_general?`<div class="data-row"><span class="data-key">Estado:</span><span class="data-val">${r.estado_general}</span></div>`:''}
   </div>
 </div>
 
@@ -2803,6 +2838,11 @@ ${(()=>{
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:2px 10px;align-items:start;">${eqMiniHTML}</div>
   `;
 })()}
+
+<!-- TRABAJOS REALIZADOS (sesión 41) -->
+${r.trabajos?`<div class="sec-title"><div class="sec-bar"></div><div class="sec-label">Trabajos Realizados</div></div>
+<div class="sec-line"></div>
+<div class="obs-box">${r.trabajos}</div>`:''}
 
 <!-- OBSERVACIONES -->
 ${r.obs_general?`<div class="sec-title"><div class="sec-bar"></div><div class="sec-label">Observaciones y Recomendaciones</div></div>
@@ -3021,6 +3061,55 @@ function cargarLibsPDF(){
   });
 }
 
+// ── Ajustes previos a html2canvas (sesión 41) ─────────────────
+// Problema real (guía 2026-09-011 generada en iPhone): las fotos salían como
+// franjas borrosas y el texto con tamaños distintos, mientras la misma guía
+// generada en el Mac salía bien. Dos causas conocidas de html2canvas en Safari iOS:
+//  1. html2canvas no soporta object-fit:cover y además Safari iOS falla al
+//     dibujar fotos grandes (12 MP) escaladas en un canvas. Solución: cada foto
+//     de la guía se reemplaza por una miniatura ya recortada (cover manual) del
+//     tamaño del recuadro x2, así html2canvas solo copia una imagen chica.
+//  2. Safari iOS "infla" el texto de algunos bloques (text autosizing).
+//     Solución: -webkit-text-size-adjust:100% en el documento de la captura.
+// No toca construirHTMLGuia(): trabaja sobre el iframe ya renderizado.
+async function _ajustarGuiaParaCaptura(doc){
+  try{
+    doc.documentElement.style.webkitTextSizeAdjust='100%';
+    doc.documentElement.style.textSizeAdjust='100%';
+  }catch(e){}
+  var imgs=Array.prototype.slice.call(doc.querySelectorAll('.foto-frame img'));
+  await Promise.all(imgs.map(function(img){
+    return new Promise(function(resolve){
+      try{
+        var marco=img.parentElement.getBoundingClientRect();
+        var fw=Math.max(40,Math.round(marco.width)), fh=Math.max(30,Math.round(marco.height));
+        var src=new Image();
+        src.crossOrigin='anonymous';
+        var listo=false;
+        var fin=function(){ if(!listo){ listo=true; resolve(); } };
+        setTimeout(fin,8000); // nunca bloquear la generación del PDF
+        src.onload=function(){
+          try{
+            var k=2, cw=fw*k, ch=fh*k;
+            var sw=src.naturalWidth, sh=src.naturalHeight;
+            if(!sw||!sh) return fin();
+            var esc=Math.max(cw/sw, ch/sh);            // cover
+            var rw=cw/esc, rh=ch/esc;
+            var sx=(sw-rw)/2, sy=(sh-rh)/2;
+            var c=doc.createElement('canvas'); c.width=cw; c.height=ch;
+            c.getContext('2d').drawImage(src, sx, sy, rw, rh, 0, 0, cw, ch);
+            var data=c.toDataURL('image/jpeg',0.85);
+            img.onload=fin; img.onerror=fin;
+            img.style.objectFit='fill';
+            img.src=data;
+          }catch(e){ fin(); } // p. ej. canvas "tainted" por CORS: queda la foto original
+        };
+        src.onerror=fin;
+        src.src=img.currentSrc||img.src;
+      }catch(e){ resolve(); }
+    });
+  }));
+}
 async function _prepararPDFCompartir(r){
   await cargarLibsPDF();
   var htmlClean=construirHTMLGuia(r);
@@ -3045,6 +3134,9 @@ async function _prepararPDFCompartir(r){
     return new Promise(function(res){ img.onload=img.onerror=res; });
   }));
   await new Promise(function(res){ setTimeout(res,300); });
+
+  // Ajustes para iPhone/Safari (sesión 41), aislados: si fallan, se sigue igual que antes.
+  try{ await _ajustarGuiaParaCaptura(iframe.contentDocument); }catch(eAj){ console.warn('Ajuste PDF iOS:',eAj); }
 
   var paginas=iframe.contentDocument.querySelectorAll('.page');
   if(!paginas.length) throw new Error('No se encontró contenido para generar el PDF');
@@ -3778,6 +3870,7 @@ enviar = async function(){
         cliente:clienteSel?.nombre,tecnico,
         tipo_visita:document.getElementById('sel-tipo').value,
         fecha,obs_general:document.getElementById('obs-gen').value,
+        trabajos:(document.getElementById('trabajos').value||'').trim()||null,estado_general:document.getElementById('estado-general').value||null,
         req_presup:document.getElementById('req-presup').checked,
         presup_desc:document.getElementById('presup-desc').value||null,
         secciones:secs,log_cambios:logInicial,nota_registro:notaRegistro,
@@ -3879,6 +3972,8 @@ function guardarBorrador(){
                      document.getElementById('obs-gen').value : '',
       trabajos:      document.getElementById('trabajos') ?
                      document.getElementById('trabajos').value : '',
+      estadoGeneral: document.getElementById('estado-general') ?
+                     document.getElementById('estado-general').value : '',
       reqPresup:     document.getElementById('req-presup') ?
                      document.getElementById('req-presup').checked : false,
       presupDesc:    document.getElementById('presup-desc') ?
@@ -4135,6 +4230,10 @@ async function continuarBorrador(){
     if(b.trabajos){
       var tr = document.getElementById('trabajos');
       if(tr) tr.value = b.trabajos;
+    }
+    if(b.estadoGeneral){
+      var eg = document.getElementById('estado-general');
+      if(eg) eg.value = b.estadoGeneral;
     }
     if(b.reqPresup){
       var rp = document.getElementById('req-presup');

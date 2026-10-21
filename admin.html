@@ -1426,6 +1426,8 @@ function verDetalleVisita(r){
     });
     html+='</div>';
   });
+  if(r.estado_general)html+=`<div style="font-size:12px;color:var(--text2);margin-bottom:8px;"><strong>Estado general:</strong> ${r.estado_general}</div>`;
+  if(r.trabajos)html+=`<div style="background:var(--gray);border-radius:8px;padding:8px 10px;font-size:12px;color:var(--text2);margin-bottom:8px;"><strong>Trabajos realizados:</strong> ${r.trabajos}</div>`;
   if(r.obs_general)html+=`<div style="background:var(--gray);border-radius:8px;padding:8px 10px;font-size:12px;color:var(--text2);margin-bottom:8px;"><strong>Observaciones:</strong> ${r.obs_general}</div>`;
   if(r.req_presup&&r.presup_desc)html+=`<div style="background:var(--amber-light);border-radius:8px;padding:8px 10px;font-size:12px;color:var(--amber-dark);margin-bottom:8px;">💰 <strong>Presupuesto:</strong> ${r.presup_desc}</div>`;
   if(r.req_presup){
@@ -1507,6 +1509,9 @@ function abrirEdicionGuia(){
     html+='</div>';
   });
 
+  const _EST_GEN_OPTS=['Bueno — operando correctamente','Regular — requiere atención','Malo — requiere reparación','Crítico — fuera de servicio'];
+  html+=`<div class="a-field" style="margin-bottom:8px;"><label>Estado general</label><select id="edit-estado-general"><option value="" ${!r.estado_general?'selected':''}>— Sin registrar —</option>${_EST_GEN_OPTS.map(t=>`<option value="${t}" ${r.estado_general===t?'selected':''}>${t}</option>`).join('')}</select></div>`;
+  html+=`<div class="a-field" style="margin-bottom:8px;"><label>Trabajos realizados</label><textarea spellcheck="true" id="edit-trabajos" rows="3">${r.trabajos||''}</textarea></div>`;
   html+=`<div class="a-field" style="margin-bottom:8px;"><label>Observaciones generales</label><textarea spellcheck="true" id="edit-obs-general" rows="2">${r.obs_general||''}</textarea></div>`;
   html+=`<div class="a-field" style="margin-bottom:8px;">
     <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="edit-req-presup" ${r.req_presup?'checked':''} style="width:auto;"> Requiere presupuesto</label>
@@ -1543,6 +1548,8 @@ function _diffEdicionGuia(original, nuevo){
   if(original.fecha!==nuevo.fecha)cambios.push(`Fecha: ${original.fecha||'—'} → ${nuevo.fecha||'—'}`);
   if(original.tipo_visita!==nuevo.tipo_visita)cambios.push(`Tipo de visita: "${original.tipo_visita||'—'}" → "${nuevo.tipo_visita||'—'}"`);
   if(original.obs_general!==nuevo.obs_general)cambios.push('Observaciones generales editadas');
+  if((original.trabajos||null)!==(nuevo.trabajos||null))cambios.push('Trabajos realizados editados');
+  if((original.estado_general||null)!==(nuevo.estado_general||null))cambios.push(`Estado general: "${original.estado_general||'—'}" → "${nuevo.estado_general||'—'}"`);
   if(!!original.req_presup!==!!nuevo.req_presup)cambios.push(`Presupuesto: ${nuevo.req_presup?'marcado':'desmarcado'}`);
   if(original.presup_desc!==nuevo.presup_desc)cambios.push('Descripción de presupuesto editada');
   if(original.nota_registro!==nuevo.nota_registro)cambios.push('Nota de registro editada');
@@ -1614,6 +1621,8 @@ async function guardarEdicionGuia(){
       fecha:document.getElementById('edit-fecha').value,
       tipo_visita:document.getElementById('edit-tipo-visita').value,
       obs_general:document.getElementById('edit-obs-general').value||null,
+      trabajos:document.getElementById('edit-trabajos').value.trim()||null,
+      estado_general:document.getElementById('edit-estado-general').value||null,
       req_presup:document.getElementById('edit-req-presup').checked,
       presup_desc:document.getElementById('edit-presup-desc').value||null,
       nota_registro:document.getElementById('edit-nota-registro').value||null,
@@ -2977,6 +2986,7 @@ function construirHTMLGuia(r){
     <div class="data-row"><span class="data-key">Fecha:</span><span class="data-val">${r.fecha||'—'}</span></div>
     <div class="data-row"><span class="data-key">Tipo:</span><span class="data-val">${r.tipo_visita||'—'}</span></div>
     <div class="data-row"><span class="data-key">Técnico:</span><span class="data-val">${r.tecnico||'—'}</span></div>
+    ${r.estado_general?`<div class="data-row"><span class="data-key">Estado:</span><span class="data-val">${r.estado_general}</span></div>`:''}
   </div>
 </div>
 
@@ -3021,6 +3031,11 @@ ${(()=>{
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:2px 10px;align-items:start;">${eqMiniHTML}</div>
   `;
 })()}
+
+<!-- TRABAJOS REALIZADOS (sesión 41) -->
+${r.trabajos?`<div class="sec-title"><div class="sec-bar"></div><div class="sec-label">Trabajos Realizados</div></div>
+<div class="sec-line"></div>
+<div class="obs-box">${r.trabajos}</div>`:''}
 
 <!-- OBSERVACIONES -->
 ${r.obs_general?`<div class="sec-title"><div class="sec-bar"></div><div class="sec-label">Observaciones y Recomendaciones</div></div>
