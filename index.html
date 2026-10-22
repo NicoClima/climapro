@@ -12,6 +12,8 @@
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
+/* Sesión 42: evita recargar la página con el gesto de deslizar hacia abajo (Android) — una recarga a mitad de visita perdía fotos */
+html,body{overscroll-behavior-y:contain;}
 :root{
   --teal:#1D9E75;--teal-dark:#0F6E56;--teal-light:#E1F5EE;--teal-mid:#9FE1CB;
   --amber:#EF9F27;--amber-light:#FAEEDA;--amber-dark:#854F0B;
@@ -1636,33 +1638,47 @@ function registrarFotosPendientesPost(destinoBase){
   });
 }
 
-// Parcha el campo `secciones` de un reporte ya guardado en Supabase para
-// agregarle la URL de una foto que llegó tarde. Hace un fetch+patch (no hay
-// forma de actualizar solo un campo anidado del JSON vía REST de PostgREST).
-async function aplicarUrlFotoAReporte(reporteId, sid, tipo, itemLabel, url){
+// Parcha el campo `secciones` de un reporte ya guardado para agregarle la URL
+// de una foto que llegó tarde.
+// Sesión 42: (1) los parches se hacen de a uno (cola), para que dos fotos que
+// terminan al mismo tiempo no se pisen; (2) no duplica una URL ya presente;
+// (3) parcha la versión vigente de la guía (si el admin ya creó una v2, la foto
+// va a la v2); (4) al confirmar, borra la copia guardada en el teléfono.
+var _parcheFotosCola=Promise.resolve();
+function aplicarUrlFotoAReporte(reporteId, sid, tipo, itemLabel, url){
+  var p=_parcheFotosCola.then(function(){
+    return _aplicarUrlFotoAReporteAhora(reporteId, sid, tipo, itemLabel, url);
+  });
+  _parcheFotosCola=p.catch(function(){});
+  return p;
+}
+async function _aplicarUrlFotoAReporteAhora(reporteId, sid, tipo, itemLabel, url){
   if(!reporteId) throw new Error('Sin id de reporte todavía');
-  var rows = await sbGet('reportes', 'id=eq.'+reporteId+'&select=secciones');
+  var rows = await sbGet('reportes', 'or=(id.eq.'+reporteId+',reporte_original_id.eq.'+reporteId+')&select=id,version,secciones&order=version.desc&limit=1');
   if(!rows || !rows[0]) throw new Error('Reporte no encontrado (id '+reporteId+')');
-  var secciones = rows[0].secciones || [];
+  var fila = rows[0];
+  var secciones = fila.secciones || [];
   var sec = secciones.find(function(s){ return s.id===sid; });
   if(!sec) throw new Error('Sección '+sid+' no encontrada en el reporte');
   if(tipo==='seccion'){
     sec.urlsFotosSeccion = sec.urlsFotosSeccion || [];
-    sec.urlsFotosSeccion.push(url);
+    if(sec.urlsFotosSeccion.indexOf(url)===-1) sec.urlsFotosSeccion.push(url);
+    sec.fotos = Math.max(sec.fotos||0, sec.urlsFotosSeccion.length);
   } else {
     var item = (sec.items||[]).find(function(it){ return it.item===itemLabel; });
     if(!item) throw new Error('Ítem "'+itemLabel+'" no encontrado en la sección '+sid);
     item.urlsFotos = item.urlsFotos || [];
-    item.urlsFotos.push(url);
+    if(item.urlsFotos.indexOf(url)===-1) item.urlsFotos.push(url);
+    item.nFotosItem = Math.max(item.nFotosItem||0, item.urlsFotos.length);
   }
-  await sbPatch('reportes', reporteId, {secciones: secciones});
+  await sbPatch('reportes', fila.id, {secciones: secciones});
+  try{ _fotoConfirmadaEnGuia(url); }catch(e){}
 }
 
-// Reintenta subir las fotos que quedaron pendientes (sin urlRemota) y, si
-// tienen éxito, corrige el reporte ya guardado. Se llama al recuperar
-// conexión (actualizarEstadoRed()). Solo sirve mientras la app sigue abierta
-// desde que se tomó la foto — es la limitación conocida de esta primera
-// versión del fix (ver nota arriba).
+// Reintenta subir las fotos que quedaron pendientes después de enviar la guía y
+// corrige el reporte ya guardado. Sesión 42: ya no re-sube una foto que todavía
+// se está subiendo (evitaba duplicados), y las pendientes sobreviven a cerrar
+// la app porque se recargan desde el teléfono al abrirla (fotosInitPendientes).
 async function reintentarFotosPendientes(){
   if(!navigator.onLine) return;
   if(!window._fotosPendientesPost || !window._fotosPendientesPost.length) return;
@@ -1670,7 +1686,7 @@ async function reintentarFotosPendientes(){
   for(var i=0;i<pendientes.length;i++){
     var entrada = pendientes[i];
     var destino = entrada._destino;
-    if(!destino){
+    if(!destino || entrada._borrada){
       var idxLimpio=window._fotosPendientesPost.indexOf(entrada);
       if(idxLimpio>-1) window._fotosPendientesPost.splice(idxLimpio,1);
       continue;
@@ -1679,43 +1695,56 @@ async function reintentarFotosPendientes(){
       var real = window._offlineIdAReporteId[destino.idOffline];
       if(real) destino.reporteId = real;
     }
-    if(!destino.reporteId) continue; // el reporte offline todavía no se sincronizó — se reintenta en la próxima reconexión
+    if(!destino.reporteId) continue; // el reporte offline todavía no se sincronizó
+    if(entrada._subiendo) continue;   // ya hay una subida en curso para esta foto
     try{
-      if(!entrada.urlRemota){
-        var carpeta = destino.tipo==='seccion' ? ('secciones/'+destino.sid) : ('items/'+destino.sid+'-retry');
-        entrada.urlRemota = await subirFoto(entrada.file, carpeta);
+      if(entrada._enPayload && entrada.urlRemota){
+        // Ya viajó dentro del reporte al sincronizar: no hace falta parchar
+        _fotoConfirmadaEnGuia(entrada.urlRemota);
+      } else {
+        if(!entrada.urlRemota){
+          entrada._subiendo=true;
+          var carpeta = entrada._carpeta || (destino.tipo==='seccion' ? ('secciones/'+destino.sid) : ('items/'+destino.sid+'-retry'));
+          try{ entrada.urlRemota = await subirFoto(entrada.file, carpeta); }
+          finally{ entrada._subiendo=false; }
+          if(entrada.urlRemota) _fotoGuardarRegistro(entrada);
+        }
+        if(!entrada.urlRemota) continue; // sigue sin poder subir, se reintenta después
+        await aplicarUrlFotoAReporte(destino.reporteId, destino.sid, destino.tipo, destino.itemLabel, entrada.urlRemota);
       }
-      if(!entrada.urlRemota) continue; // sigue sin poder subir, se reintenta después
-      await aplicarUrlFotoAReporte(destino.reporteId, destino.sid, destino.tipo, destino.itemLabel, entrada.urlRemota);
       entrada._destino=null;
       var idxOk=window._fotosPendientesPost.indexOf(entrada);
       if(idxOk>-1) window._fotosPendientesPost.splice(idxOk,1);
     }catch(e){
-      console.warn('Reintento de foto pendiente falló, se reintentará en la próxima reconexión:', e.message);
+      console.warn('Reintento de foto pendiente falló, se reintentará:', e.message);
     }
   }
+  try{ _fotosActualizarIndicador(); }catch(e){}
 }
 
 function procesarFotoItem(sid,i,item,file){
   fotosItems[sid]=fotosItems[sid]||{};
   fotosItems[sid][i]=fotosItems[sid][i]||[];
-  var id='fi-'+sid+'-'+i+'-'+Date.now();
+  // id único también si se eligen varias fotos en el mismo milisegundo
+  var id='fi-'+sid+'-'+i+'-'+Date.now()+'-'+Math.random().toString(36).substr(2,4);
   var url=URL.createObjectURL(file);
-  var entrada={label:item,id:id,url:url,file:file,urlRemota:null};
+  var entrada={label:item,id:id,url:url,file:file,urlRemota:null,
+    _fid:_fotoNuevoFid(),_sid:sid,_tipo:'item',_idx:i,_carpeta:'items/'+sid+'-'+i};
   fotosItems[sid][i].push(entrada);
-  // Subir a Supabase Storage en segundo plano
-  subirFoto(file,'items/'+sid+'-'+i).then(function(urlRemota){
-    manejarResultadoSubidaFoto(entrada, urlRemota);
-  });
+  _renderThumbItem(sid,i,item,entrada);
+  // Comprimir, guardar copia en el teléfono y subir en segundo plano (módulo FOTOS SIN PÉRDIDA)
+  _fotoProcesar(entrada);
+}
 
-  // Miniatura real con imagen
+// Miniatura de una foto de ítem en el wizard (también la usa la restauración del borrador)
+function _renderThumbItem(sid,i,item,entrada){
   var fig=document.getElementById('fig-'+sid+'-'+i);
   if(fig){
     var thumb=document.createElement('div');
-    thumb.className='foto-item-thumb';thumb.id=id;
+    thumb.className='foto-item-thumb';thumb.id=entrada.id;
 
     var img=document.createElement('img');
-    img.src=url;img.style.width='64px';img.style.height='64px';
+    img.src=entrada.url;img.style.width='64px';img.style.height='64px';
     img.style.borderRadius='8px';img.style.objectFit='cover';
 
     var lbl=document.createElement('div');
@@ -1724,15 +1753,16 @@ function procesarFotoItem(sid,i,item,file){
 
     var del=document.createElement('button');
     del.className='foto-item-del';del.textContent='✕';del.type='button';
-    del.onclick=function(){delFotoItem(sid,i,id);};
+    del.onclick=function(){delFotoItem(sid,i,entrada.id);};
 
     thumb.appendChild(img);thumb.appendChild(lbl);thumb.appendChild(del);
     fig.appendChild(thumb);
   }
 
   // Actualizar contador
+  var n=((fotosItems[sid]||{})[i]||[]).length;
   var fic=document.getElementById('fic-'+sid+'-'+i);
-  if(fic)fic.textContent=(fotosItems[sid][i].length)+' foto'+(fotosItems[sid][i].length!==1?'s':'');
+  if(fic)fic.textContent=n+' foto'+(n!==1?'s':'');
 
   // Ocultar advertencia
   var warn=document.getElementById('foto-warn-'+sid+'-'+i);
@@ -1911,43 +1941,51 @@ function addFoto(sid){
   inp.style.display='none';
   inp.onchange=function(){
     Array.from(inp.files).forEach(function(file){
-      fotosCount[sid]=(fotosCount[sid]||0)+1;
-      var url=URL.createObjectURL(file);
-      // Guardar referencia con url remota
-      if(!fotosSeccion) var fotosSeccion={};
-      window._fotosSeccion=window._fotosSeccion||{};
-      window._fotosSeccion[sid]=window._fotosSeccion[sid]||[];
-      var entrada={url:url,urlRemota:null,label:'Vista general',file:file};
-      window._fotosSeccion[sid].push(entrada);
-      // Subir en segundo plano
-      subirFoto(file,'secciones/'+sid).then(function(urlRemota){
-        manejarResultadoSubidaFoto(entrada, urlRemota);
-      });
-      var el=document.createElement('div');
-      el.className='foto-thumb';
-      el.style.position='relative';
-      el.style.display='inline-block';
-      var img=document.createElement('img');
-      img.src=url;
-      img.style.width='68px';img.style.height='68px';
-      img.style.borderRadius='8px';img.style.objectFit='cover';img.style.display='block';
-      var del=document.createElement('button');
-      del.className='foto-del';del.textContent='✕';del.type='button';
-      del.onclick=function(){
-        el.remove();
-        fotosCount[sid]=Math.max(0,(fotosCount[sid]||1)-1);
-        updFC(sid);
-        var idx=window._fotosSeccion[sid]?window._fotosSeccion[sid].indexOf(entrada):-1;
-        if(idx>-1) window._fotosSeccion[sid].splice(idx,1);
-      };
-      el.appendChild(img);el.appendChild(del);
-      document.getElementById('fg-'+sid).appendChild(el);
-      updFC(sid);
+      _agregarFotoSeccionArchivo(sid,file);
     });
     document.body.removeChild(inp);
   };
   document.body.appendChild(inp);
   inp.click();
+}
+
+// Agrega una foto de "vista general" del equipo. La cantidad de fotos se
+// deriva siempre de la lista real (_fotosSeccion), nunca de un contador aparte.
+function _agregarFotoSeccionArchivo(sid,file){
+  window._fotosSeccion=window._fotosSeccion||{};
+  window._fotosSeccion[sid]=window._fotosSeccion[sid]||[];
+  var entrada={url:URL.createObjectURL(file),urlRemota:null,label:'Vista general',file:file,
+    _fid:_fotoNuevoFid(),_sid:sid,_tipo:'seccion',_idx:null,_carpeta:'secciones/'+sid};
+  window._fotosSeccion[sid].push(entrada);
+  fotosCount[sid]=window._fotosSeccion[sid].length;
+  _renderThumbSeccion(sid,entrada);
+  _fotoProcesar(entrada);
+}
+
+function _renderThumbSeccion(sid,entrada){
+  var el=document.createElement('div');
+  el.className='foto-thumb';
+  el.style.position='relative';
+  el.style.display='inline-block';
+  var img=document.createElement('img');
+  img.src=entrada.url;
+  img.style.width='68px';img.style.height='68px';
+  img.style.borderRadius='8px';img.style.objectFit='cover';img.style.display='block';
+  var del=document.createElement('button');
+  del.className='foto-del';del.textContent='✕';del.type='button';
+  del.onclick=function(){
+    el.remove();
+    var arr=window._fotosSeccion[sid]||[];
+    var idx=arr.indexOf(entrada);
+    if(idx>-1) arr.splice(idx,1);
+    fotosCount[sid]=arr.length;
+    updFC(sid);
+    _fotoDescartar(entrada);
+  };
+  el.appendChild(img);el.appendChild(del);
+  var fg=document.getElementById('fg-'+sid);
+  if(fg) fg.appendChild(el);
+  updFC(sid);
 }
 function updFC(sid){const n=fotosCount[sid]||0;const el=document.getElementById('fc-'+sid);if(el)el.textContent=`${n} foto${n!==1?'s':''}`;}
 function irSig(idx){
@@ -4316,6 +4354,513 @@ if(document.getElementById('firma-canvas'))setTimeout(initFirma,200);
 if(document.getElementById('firma-canvas-full'))setTimeout(initFirmaFull,200);
 // Setear fecha de hoy por defecto
 var _fd=document.getElementById('visita-fecha');if(_fd)_fd.value=new Date().toISOString().split('T')[0];
+
+// ══════════════════════════════════════════════════════════
+// FOTOS SIN PÉRDIDA (sesión 42)
+// ──────────────────────────────────────────────────────────
+// Causa confirmada (guía 2026-10-002): la app se recargó a mitad de visita;
+// "Continuar visita" restauró la CANTIDAD de fotos pero no las fotos, y la
+// guía salió con "📷 Vista general". Este módulo garantiza:
+//  1. Cada foto se comprime (calidad de impresión) y se guarda en el teléfono
+//     (IndexedDB) hasta que quede vinculada a la guía en Supabase. Sobrevive a
+//     recargar, cerrar o retomar la app.
+//  2. La cantidad de fotos se deriva siempre de las fotos reales.
+//  3. El PDF y el correo que salen al enviar usan la copia local de cada foto:
+//     no dependen de que la subida haya terminado.
+//  4. Reintentos antes y después del envío, también al reabrir la app.
+//  5. Si algo igual falla, se avisa en pantalla. Nunca en silencio.
+// Todo aislado en try/catch: si este módulo falla, el wizard sigue como antes.
+// ══════════════════════════════════════════════════════════
+var FOTO_LADO_MAX = 1600;    // px del lado largo: calidad de impresión
+var FOTO_CALIDAD  = 0.72;    // JPEG
+var FOTO_DIAS_MAX = 21;      // copias locales más viejas se descartan
+
+function _blobAFile(datos, tipo){
+  var t=tipo||'image/jpeg';
+  try{ return new File([datos], 'foto.jpg', {type:t}); }
+  catch(e){ var b=(datos instanceof Blob)?datos:new Blob([datos],{type:t}); b.name='foto.jpg'; return b; }
+}
+function _fotoNuevoFid(){ return 'f-'+Date.now()+'-'+Math.random().toString(36).substr(2,6); }
+
+// ── IndexedDB ──
+var _FDB=null;
+function _fdb(){
+  if(_FDB) return _FDB;
+  _FDB=new Promise(function(res,rej){
+    try{
+      if(!window.indexedDB) return rej(new Error('Sin IndexedDB'));
+      var r=indexedDB.open('climapro_fotos',1);
+      r.onupgradeneeded=function(){ if(!r.result.objectStoreNames.contains('fotos')) r.result.createObjectStore('fotos',{keyPath:'id'}); };
+      r.onsuccess=function(){ res(r.result); };
+      r.onerror=function(){ rej(r.error); };
+    }catch(e){ rej(e); }
+  });
+  _FDB.catch(function(){ _FDB=null; });
+  return _FDB;
+}
+function _fdbTx(modo, fn){
+  return _fdb().then(function(db){
+    return new Promise(function(res,rej){
+      var tx=db.transaction('fotos',modo);
+      var req=fn(tx.objectStore('fotos'));
+      tx.oncomplete=function(){ res(req && 'result' in req ? req.result : undefined); };
+      tx.onerror=function(){ rej(tx.error); };
+      tx.onabort=function(){ rej(tx.error); };
+    });
+  });
+}
+function fdbPut(rec){ return _fdbTx('readwrite',function(st){ return st.put(rec); }).catch(function(e){ console.warn('Fotos: no se pudo guardar copia local',e); }); }
+function fdbDel(id){ if(!id) return Promise.resolve(); return _fdbTx('readwrite',function(st){ return st.delete(id); }).catch(function(){}); }
+function fdbAll(){ return _fdbTx('readonly',function(st){ return st.getAll(); }).then(function(r){ return r||[]; }).catch(function(){ return []; }); }
+
+function _fotoClaveTecnico(){ try{ return claveBorradorActual()||''; }catch(e){ return ''; } }
+
+// Guarda/actualiza la copia local de una foto (archivo comprimido + estado).
+async function _fotoGuardarRegistro(entrada){
+  try{
+    if(!entrada || !entrada._fid || entrada._borrada || !entrada.file) return;
+    if(!entrada._buf) entrada._buf = await entrada.file.arrayBuffer();
+    if(!entrada._tec) entrada._tec=_fotoClaveTecnico();
+    await fdbPut({
+      id:entrada._fid, tec:entrada._tec, sid:entrada._sid, tipo:entrada._tipo, idx:entrada._idx,
+      label:entrada.label, carpeta:entrada._carpeta||null,
+      buf:entrada._buf, type:entrada.file.type||'image/jpeg',
+      urlRemota:entrada.urlRemota||null, destino:entrada._destino||null,
+      enPayload:!!entrada._enPayload, ts:entrada._ts||(entrada._ts=Date.now())
+    });
+  }catch(e){ console.warn('Fotos: registro local',e); }
+}
+function _fotoDescartar(entrada){
+  try{ if(entrada){ entrada._borrada=true; fdbDel(entrada._fid); } }catch(e){}
+}
+// Una URL quedó confirmada dentro de la guía en Supabase → la copia local ya no hace falta
+function _fotoConfirmadaEnGuia(url){
+  if(!url) return;
+  fdbAll().then(function(recs){
+    recs.forEach(function(r){ if(r.urlRemota===url && r.destino) fdbDel(r.id); });
+  });
+  setTimeout(function(){ try{ _fotosActualizarIndicador(); }catch(e){} }, 50);
+}
+
+// ── Compresión (calidad de impresión) ──
+function comprimirFoto(file){
+  return new Promise(function(resolve){
+    try{
+      if(!file || (file.type && !/^image\//.test(file.type))) return resolve(file);
+      var url=URL.createObjectURL(file), img=new Image(), listo=false;
+      var fin=function(b){ if(listo) return; listo=true; try{URL.revokeObjectURL(url);}catch(e){} resolve(b||file); };
+      setTimeout(function(){ fin(file); },15000);
+      img.onload=function(){
+        try{
+          var w=img.naturalWidth, h=img.naturalHeight;
+          if(!w||!h) return fin(file);
+          var esc=Math.min(1, FOTO_LADO_MAX/Math.max(w,h));
+          var c=document.createElement('canvas');
+          c.width=Math.max(1,Math.round(w*esc)); c.height=Math.max(1,Math.round(h*esc));
+          var ctx=c.getContext('2d'); ctx.fillStyle='#fff'; ctx.fillRect(0,0,c.width,c.height);
+          ctx.drawImage(img,0,0,c.width,c.height);
+          c.toBlob(function(b){
+            if(!b || !b.size || b.size>=file.size) return fin(file);
+            var nombre=(file.name||'foto').replace(/\.[^.]*$/,'')+'.jpg';
+            try{ fin(new File([b], nombre, {type:'image/jpeg'})); }
+            catch(e){ b.name=nombre; fin(b); }
+          },'image/jpeg',FOTO_CALIDAD);
+        }catch(e){ fin(file); }
+      };
+      img.onerror=function(){ fin(file); };
+      img.src=url;
+    }catch(e){ resolve(file); }
+  });
+}
+
+// ── Subida ──
+// Verifica que el archivo subido no quedó vacío (falla real de la sesión 40).
+var _subirFotoBase = subirFoto;
+subirFoto = async function(file, carpeta){
+  // Una foto recuperada del teléfono es un Blob sin nombre: subirFoto() necesita file.name
+  if(file && !file.name) file=_blobAFile(file, file.type);
+  var url = await _subirFotoBase(file, carpeta);
+  if(!url) return null;
+  try{
+    var r = await fetch(url, {method:'HEAD', cache:'no-store'});
+    if(r.ok && r.headers.get('content-length')==='0'){
+      console.warn('Foto subida con 0 bytes, se reintentará:', url);
+      return null;
+    }
+  }catch(e){ /* sin verificación posible: se acepta la URL */ }
+  return url;
+};
+
+async function _fotoProcesar(entrada){
+  try{
+    var comp = await comprimirFoto(entrada.file);
+    if(comp && !entrada._borrada) entrada.file = comp;
+  }catch(e){}
+  await _fotoGuardarRegistro(entrada);
+  await _fotoSubir(entrada);
+}
+async function _fotoSubir(entrada){
+  if(!entrada || entrada.urlRemota || entrada._subiendo || !entrada.file || entrada._borrada) return;
+  entrada._subiendo=true;
+  var url=null;
+  try{ url = await subirFoto(entrada.file, entrada._carpeta || ('secciones/'+entrada._sid)); }
+  catch(e){ url=null; }
+  finally{ entrada._subiendo=false; }
+  manejarResultadoSubidaFoto(entrada, url);
+}
+
+// Al recibir la URL, se guarda también en la copia local.
+var _manejarResultadoSubidaFotoBase = manejarResultadoSubidaFoto;
+manejarResultadoSubidaFoto = function(entrada, urlRemota){
+  _manejarResultadoSubidaFotoBase(entrada, urlRemota);
+  try{ if(urlRemota) _fotoGuardarRegistro(entrada); _fotosActualizarIndicador(); }catch(e){}
+};
+
+// Pendientes post-envío: además de la memoria, quedan en el teléfono.
+var _registrarFotosPendientesPostBase = registrarFotosPendientesPost;
+registrarFotosPendientesPost = function(destinoBase){
+  _registrarFotosPendientesPostBase(destinoBase);
+  try{
+    (window._fotosPendientesPost||[]).forEach(function(e){ if(e._destino) _fotoGuardarRegistro(e); });
+    _fotosActualizarIndicador();
+  }catch(e){}
+};
+
+// Todas las fotos de la visita en curso
+function _fotosDeLaVisita(){
+  var out=[];
+  Object.keys(fotosItems||{}).forEach(function(sid){
+    Object.keys(fotosItems[sid]||{}).forEach(function(i){
+      (fotosItems[sid][i]||[]).forEach(function(e){ if(e && e.file) out.push(e); });
+    });
+  });
+  Object.keys(window._fotosSeccion||{}).forEach(function(sid){
+    (window._fotosSeccion[sid]||[]).forEach(function(e){ if(e && e.file) out.push(e); });
+  });
+  return out;
+}
+
+// Reintento ANTES del envío (foto tomada sin señal): antes no existía.
+function _fotosReintentarVisita(){
+  if(!navigator.onLine) return;
+  _fotosDeLaVisita().forEach(function(e){ if(!e.urlRemota && !e._subiendo && !e._destino && !e._borrada) _fotoSubir(e); });
+}
+
+// ── Restaurar fotos al "Continuar visita" ──
+var _continuarBorradorBase = continuarBorrador;
+continuarBorrador = async function(){
+  var b=null; try{ b=leerBorrador(); }catch(e){}
+  var res = await _continuarBorradorBase.apply(this, arguments);
+  try{ await fotosRestaurarVisita(b); }catch(e){ console.warn('Fotos: no se pudieron restaurar',e); }
+  return res;
+};
+async function fotosRestaurarVisita(b){
+  var tec=_fotoClaveTecnico();
+  var recs=(await fdbAll()).filter(function(r){ return r.tec===tec && !r.destino; })
+    .sort(function(a,c){ return (a.ts||0)-(c.ts||0); });
+  var yaEnMemoria={}; _fotosDeLaVisita().forEach(function(e){ yaEnMemoria[e._fid]=1; });
+  recs.forEach(function(r){
+    if(yaEnMemoria[r.id]) return;
+    var idx=parseInt(String(r.sid||'').replace('sec-',''),10);
+    var eq=(pasosChk||[])[idx];
+    if(!eq || eq._omitido){ fdbDel(r.id); return; }
+    var blob=_blobAFile(r.buf, r.type);
+    var entrada={label:r.label,url:URL.createObjectURL(blob),file:blob,urlRemota:r.urlRemota||null,
+      _fid:r.id,_sid:r.sid,_tipo:r.tipo,_idx:r.idx,_carpeta:r.carpeta,_buf:r.buf,_tec:r.tec,_ts:r.ts};
+    if(r.tipo==='seccion'){
+      window._fotosSeccion=window._fotosSeccion||{};
+      window._fotosSeccion[r.sid]=window._fotosSeccion[r.sid]||[];
+      window._fotosSeccion[r.sid].push(entrada);
+      _renderThumbSeccion(r.sid, entrada);
+    } else {
+      entrada.id='fi-'+r.sid+'-'+r.idx+'-'+r.id;
+      fotosItems[r.sid]=fotosItems[r.sid]||{};
+      fotosItems[r.sid][r.idx]=fotosItems[r.sid][r.idx]||[];
+      fotosItems[r.sid][r.idx].push(entrada);
+      _renderThumbItem(r.sid, r.idx, r.label, entrada);
+    }
+  });
+  // La cantidad sale de las fotos reales. Si el borrador decía más fotos de
+  // las que existen (p. ej. guardadas antes de esta versión), se avisa.
+  var perdidas=[];
+  (pasosChk||[]).forEach(function(eq,idx){
+    var sid='sec-'+idx;
+    var reales=((window._fotosSeccion||{})[sid]||[]).length;
+    var decia=(b&&b.fotosCount&&b.fotosCount[sid])||0;
+    if(!eq._omitido && decia>reales) perdidas.push(eq.label+' ('+(decia-reales)+')');
+    fotosCount[sid]=reales; updFC(sid);
+  });
+  _fotosReintentarVisita();
+  var activo=document.querySelector('.step.active');
+  if(activo && activo.id==='s-resumen'){ try{ genResumen(); }catch(e){} }
+  try{ guardarBorrador(); }catch(e){}
+  if(perdidas.length){
+    alert('⚠️ Al recuperar la visita faltan fotos de "vista general" en: '+perdidas.join(', ')+'.\n\nVuelve a tomarlas antes de enviar la guía.');
+  }
+}
+
+// ── Inicio de la app: retomar fotos pendientes de guías ya enviadas ──
+async function fotosInitPendientes(){
+  var recs=await fdbAll();
+  var ahora=Date.now();
+  window._fotosPendientesPost=window._fotosPendientesPost||[];
+  var enLista={}; window._fotosPendientesPost.forEach(function(e){ if(e._fid) enLista[e._fid]=1; });
+  recs.forEach(function(r){
+    if(r.ts && ahora-r.ts > FOTO_DIAS_MAX*86400000){ fdbDel(r.id); return; }
+    if(!r.destino || enLista[r.id]) return;
+    var blob=_blobAFile(r.buf, r.type);
+    window._fotosPendientesPost.push({label:r.label,file:blob,urlRemota:r.urlRemota||null,_destino:r.destino,
+      _enPayload:!!r.enPayload,_fid:r.id,_sid:r.sid,_tipo:r.tipo,_idx:r.idx,_carpeta:r.carpeta,_buf:r.buf,_tec:r.tec,_ts:r.ts});
+  });
+  _fotosActualizarIndicador();
+  if(navigator.onLine) reintentarFotosPendientes();
+}
+
+// Mapa id offline → id real, persistido (antes se perdía al cerrar la app).
+(function(){
+  try{
+    var guardado={}; try{ guardado=JSON.parse(localStorage.getItem('climapro_offline_map')||'{}')||{}; }catch(e){}
+    var base=Object.assign({}, guardado, window._offlineIdAReporteId||{});
+    window._offlineIdAReporteId=new Proxy(base,{set:function(t,k,v){
+      t[k]=v; try{ localStorage.setItem('climapro_offline_map', JSON.stringify(t)); }catch(e){}
+      return true;
+    }});
+  }catch(e){}
+})();
+
+// ── Sincronización offline: subir fotos y meterlas al reporte ANTES de enviarlo ──
+var _enviarPendientesBase = enviarPendientes;
+enviarPendientes = async function(){
+  try{ await _fotosAntesDeSincronizar(); }catch(e){ console.warn('Fotos: pre-sincronización',e); }
+  return _enviarPendientesBase.apply(this, arguments);
+};
+async function _fotosAntesDeSincronizar(){
+  if(!navigator.onLine) return;
+  var pend=leerDeCache(CACHE_KEY_PENDIENTES)||[];
+  if(!pend.length) return;
+  var cambio=false;
+  for(var k=0;k<pend.length;k++){
+    var p=pend[k];
+    var mias=(window._fotosPendientesPost||[]).filter(function(e){ return e._destino && e._destino.idOffline===p._pendienteId && !e._borrada; });
+    for(var j=0;j<mias.length;j++){
+      var e=mias[j];
+      if(!e.urlRemota && !e._subiendo){
+        e._subiendo=true;
+        try{ e.urlRemota=await subirFoto(e.file, e._carpeta||('secciones/'+e._destino.sid)); }catch(er){}
+        finally{ e._subiendo=false; }
+      }
+      if(!e.urlRemota) continue;
+      var sec=(p.secciones||[]).find(function(s){ return s.id===e._destino.sid; });
+      if(!sec) continue;
+      if(e._destino.tipo==='seccion'){
+        sec.urlsFotosSeccion=sec.urlsFotosSeccion||[];
+        if(sec.urlsFotosSeccion.indexOf(e.urlRemota)===-1) sec.urlsFotosSeccion.push(e.urlRemota);
+        sec.fotos=Math.max(sec.fotos||0, sec.urlsFotosSeccion.length);
+      } else {
+        var it=(sec.items||[]).find(function(x){ return x.item===e._destino.itemLabel; });
+        if(!it) continue;
+        it.urlsFotos=it.urlsFotos||[];
+        if(it.urlsFotos.indexOf(e.urlRemota)===-1) it.urlsFotos.push(e.urlRemota);
+        it.nFotosItem=Math.max(it.nFotosItem||0, it.urlsFotos.length);
+      }
+      e._enPayload=true; _fotoGuardarRegistro(e);
+      cambio=true;
+    }
+  }
+  if(cambio) guardarEnCache(CACHE_KEY_PENDIENTES, pend);
+}
+
+// ── PDF y correo con la copia local de las fotos de la visita recién enviada ──
+function _fotoSrcLocal(entrada){
+  if(entrada._dataUrl) return Promise.resolve(entrada._dataUrl);
+  return new Promise(function(res){
+    try{
+      var fr=new FileReader();
+      fr.onload=function(){ entrada._dataUrl=fr.result; res(fr.result); };
+      fr.onerror=function(){ res(entrada.urlRemota||null); };
+      fr.readAsDataURL(entrada.file);
+    }catch(e){ res(entrada.urlRemota||null); }
+  });
+}
+async function _conFotosLocales(r){
+  var snap=window._fotosVisitaEnviada;
+  if(!r || !snap || r!==window._ultimoReporteEnviado) return r;
+  var r2=JSON.parse(JSON.stringify(r));
+  for(var k=0;k<snap.length;k++){
+    var s=snap[k], e=s.entrada;
+    if(!e || e._borrada || !e.file) continue;
+    var sec=(r2.secciones||[]).find(function(x){ return x.id===s.sid; });
+    if(!sec) continue;
+    var src=await _fotoSrcLocal(e);
+    if(!src) continue;
+    var lista, it=null;
+    if(s.tipo==='seccion'){ lista=sec.urlsFotosSeccion=sec.urlsFotosSeccion||[]; }
+    else {
+      it=(sec.items||[]).find(function(x){ return x.item===s.label; });
+      if(!it) continue;
+      lista=it.urlsFotos=it.urlsFotos||[];
+    }
+    var pos=e.urlRemota?lista.indexOf(e.urlRemota):-1;
+    if(pos>-1) lista[pos]=src; else lista.push(src);
+    if(it) it.nFotosItem=Math.max(it.nFotosItem||0, lista.length);
+    else sec.fotos=Math.max(sec.fotos||0, lista.length);
+  }
+  return r2;
+}
+var _prepararPDFCompartirBaseFotos = _prepararPDFCompartir;
+_prepararPDFCompartir = async function(r){
+  var r2=r; try{ r2=await _conFotosLocales(r); }catch(e){ r2=r; }
+  return _prepararPDFCompartirBaseFotos.call(this, r2);
+};
+var _generarPDFGuiaBaseFotos = generarPDFGuia;
+generarPDFGuia = function(r){
+  _conFotosLocales(r).then(function(r2){ _generarPDFGuiaBaseFotos(r2); }, function(){ _generarPDFGuiaBaseFotos(r); });
+};
+
+// ── Envío ──
+function _fotosSincronizarConteos(){
+  (pasosChk||[]).forEach(function(eq,idx){
+    var sid='sec-'+idx;
+    fotosCount[sid]=((window._fotosSeccion||{})[sid]||[]).filter(function(e){ return !e._borrada; }).length;
+  });
+}
+function _fotosSnapshotVisita(){
+  var snap=[];
+  (pasosChk||[]).forEach(function(eq,idx){
+    if(eq._omitido) return;
+    var sid='sec-'+idx;
+    Object.keys((fotosItems||{})[sid]||{}).forEach(function(i){
+      (fotosItems[sid][i]||[]).forEach(function(e){ snap.push({sid:sid,tipo:'item',label:(eq.items||[])[i]||e.label,entrada:e}); });
+    });
+    ((window._fotosSeccion||{})[sid]||[]).forEach(function(e){ snap.push({sid:sid,tipo:'seccion',label:'Vista general',entrada:e}); });
+  });
+  return snap;
+}
+var _enviarBaseFotos = enviar;
+enviar = async function(){
+  var nPendAntes=0;
+  try{
+    _fotosSincronizarConteos(); window._fotosVisitaEnviada=_fotosSnapshotVisita();
+    window._ultimoReporteEnviado=null; // lo vuelve a fijar el envío online; si queda null, fue offline
+    nPendAntes=(leerDeCache(CACHE_KEY_PENDIENTES)||[]).length;
+  }catch(e){}
+  var res = await _enviarBaseFotos.apply(this, arguments);
+  try{
+    var env=document.getElementById('s-enviado');
+    if(env && env.classList.contains('active')) _fotosTrasEnvio(nPendAntes);
+  }catch(e){ console.warn('Fotos: tras envío',e); }
+  return res;
+};
+// Después de enviar: lo que ya quedó en la guía se borra del teléfono; si una
+// foto terminó de subir justo mientras se guardaba la guía (y por eso no quedó
+// en ella ni en la lista de pendientes), se agrega como pendiente para parcharla.
+function _fotosTrasEnvio(nPendAntes){
+  var rep=window._ultimoReporteEnviado||null;
+  var cola=null, pOff=null;
+  if(!rep){ // envío offline: el reporte quedó en la cola local
+    cola=leerDeCache(CACHE_KEY_PENDIENTES)||[];
+    if(cola.length>(nPendAntes||0)) pOff=cola[cola.length-1];
+  }
+  (window._fotosVisitaEnviada||[]).forEach(function(s){
+    var e=s.entrada;
+    if(!e || e._borrada || e._destino) return;
+    if(!e.urlRemota) return; // sin URL ni destino: lo maneja registrarFotosPendientesPost
+    var enGuia=false;
+    var fuente = rep && rep.id ? rep : pOff;
+    if(fuente){
+      var sec=(fuente.secciones||[]).find(function(x){ return x.id===s.sid; });
+      if(sec){
+        var lista = s.tipo==='seccion' ? (sec.urlsFotosSeccion||[])
+                  : (((sec.items||[]).find(function(x){ return x.item===s.label; })||{}).urlsFotos||[]);
+        enGuia = lista.indexOf(e.urlRemota)>-1;
+      }
+    } else { return; } // sin referencia confiable: se conserva la copia local
+    if(enGuia){ fdbDel(e._fid); return; }
+    e._destino = rep && rep.id
+      ? {reporteId:rep.id, sid:s.sid, tipo:s.tipo, itemLabel:s.tipo==='item'?s.label:undefined}
+      : {idOffline:pOff._pendienteId, sid:s.sid, tipo:s.tipo, itemLabel:s.tipo==='item'?s.label:undefined};
+    window._fotosPendientesPost.push(e);
+    _fotoGuardarRegistro(e);
+  });
+  _fotosActualizarIndicador();
+  setTimeout(reintentarFotosPendientes, 1500);
+}
+
+// ── Limpieza de copias locales que ya no sirven ──
+function _fotosBorrarLocalesSinDestino(filtroSid){
+  var tec=_fotoClaveTecnico();
+  var vivos={}; (window._fotosPendientesPost||[]).forEach(function(e){ if(e._destino && e._fid) vivos[e._fid]=1; });
+  return fdbAll().then(function(recs){
+    recs.forEach(function(r){ if(r.tec===tec && !r.destino && !vivos[r.id] && (!filtroSid || r.sid===filtroSid)) fdbDel(r.id); });
+  });
+}
+var _iniciarVisitaBaseFotos = iniciarVisita;
+iniciarVisita = function(){
+  // Visita nueva (no la restauración de un borrador): se descartan copias de una visita abandonada
+  try{ if(!window._restaurandoBorrador){ window._fotosSeccion={}; _fotosBorrarLocalesSinDestino(); } }catch(e){}
+  return _iniciarVisitaBaseFotos.apply(this, arguments);
+};
+var _reiniciarBaseFotos = reiniciar;
+reiniciar = function(){
+  try{ _fotosBorrarLocalesSinDestino(); window._fotosSeccion={}; window._fotosVisitaEnviada=null; }catch(e){}
+  return _reiniciarBaseFotos.apply(this, arguments);
+};
+var _descartarBorradorBaseFotos = descartarBorrador;
+descartarBorrador = function(){
+  try{ _fotosBorrarLocalesSinDestino(); }catch(e){}
+  return _descartarBorradorBaseFotos.apply(this, arguments);
+};
+var _omitirEquipoBaseFotos = omitirEquipo;
+omitirEquipo = function(idx){
+  var res=_omitirEquipoBaseFotos.apply(this, arguments);
+  try{
+    var eq=pasosChk[idx];
+    if(eq && eq._omitido){
+      var sid='sec-'+idx;
+      ((window._fotosSeccion||{})[sid]||[]).forEach(_fotoDescartar);
+      if(window._fotosSeccion) window._fotosSeccion[sid]=[];
+      _fotosBorrarLocalesSinDestino(sid);
+    }
+  }catch(e){}
+  return res;
+};
+var _delFotoItemBaseFotos = delFotoItem;
+delFotoItem = function(sid,i,id){
+  try{ ((fotosItems[sid]||{})[i]||[]).forEach(function(e){ if(e.id===id) _fotoDescartar(e); }); }catch(e){}
+  return _delFotoItemBaseFotos.apply(this, arguments);
+};
+
+// ── Indicador visible (nunca en silencio) ──
+function _fotosActualizarIndicador(){
+  try{
+    var pend=(window._fotosPendientesPost||[]).filter(function(e){ return e._destino && !e._borrada; }).length;
+    var txt = pend
+      ? '⏳ Subiendo '+pend+' foto'+(pend>1?'s':'')+' a la guía. Puedes seguir usando la app; si la cierras, se termina de subir al volver a abrirla con señal.'
+      : '';
+    ['fotos-estado-enviado','fotos-estado-inicio'].forEach(function(id){
+      var el=document.getElementById(id);
+      if(!el){
+        var ancla = id==='fotos-estado-enviado' ? document.getElementById('enviado-id') : document.getElementById('pending-badge');
+        if(!ancla || !ancla.parentNode) return;
+        el=document.createElement('div'); el.id=id;
+        el.style.cssText='font-size:12px;margin:8px 0;padding:8px 10px;border-radius:8px;background:var(--amber-light);color:var(--amber-dark);display:none;';
+        ancla.parentNode.insertBefore(el, ancla.nextSibling);
+      }
+      if(id==='fotos-estado-enviado' && !pend && window._fotosVisitaEnviada && window._fotosVisitaEnviada.length){
+        el.textContent='✅ Todas las fotos quedaron guardadas en la guía.';
+        el.style.background='var(--green-light)'; el.style.color='var(--green-dark)'; el.style.display='block';
+      } else if(pend){
+        el.textContent=txt; el.style.background='var(--amber-light)'; el.style.color='var(--amber-dark)'; el.style.display='block';
+      } else { el.style.display='none'; }
+    });
+  }catch(e){}
+}
+
+// ── Arranque ──
+setInterval(function(){ try{ _fotosReintentarVisita(); }catch(e){} }, 20000);
+setInterval(function(){ try{ _fotosActualizarIndicador(); }catch(e){} }, 3000);
+window.addEventListener('online', function(){ try{ _fotosReintentarVisita(); reintentarFotosPendientes(); }catch(e){} });
+setTimeout(function(){ fotosInitPendientes().catch(function(e){ console.warn('Fotos: inicio',e); }); }, 1500);
 </script>
 </body>
 </html>

@@ -1232,6 +1232,7 @@ async function cargarHistorial(){
           ${al>0?`<span class="pill pill-al">⚠️ ${al} alertas</span>`:''}
           ${pr===0&&al===0?`<span class="pill pill-ok">✅ Sin incidencias</span>`:''}
           ${r.req_presup?`<span class="pill pill-presup">💰 Presup.</span>`:''}
+          ${(typeof _fotosFaltantes==='function'&&_fotosFaltantes(r)>0)?`<span class="pill pill-pr">📷 Faltan ${_fotosFaltantes(r)} foto(s)</span>`:''}
           ${r.req_presup&&r.presup_enviado?`<span class="pill pill-ok">✅ Enviado</span>`:''}
           ${r.req_presup&&!r.presup_enviado?`<span class="pill" style="background:var(--gray);color:var(--text3);border:0.5px solid var(--gray3);">⏳ Pendiente</span>`:''}
         </div>
@@ -1403,6 +1404,10 @@ function verDetalleVisita(r){
   reporteActual=r;
   document.getElementById('mh-title').innerHTML=`${r.fecha||'—'} · ${r.cliente}${r.version>1?` <span class="pill" style="background:var(--purple-light);color:var(--purple-dark);font-size:10px;">v${r.version}</span>`:''}`;
   let html='';
+  if(typeof _fotosFaltantes==='function'&&_fotosFaltantes(r)>0){
+    html+=`<div style="background:var(--red-light);color:var(--red-dark);border:0.5px solid var(--red-dark);border-radius:8px;padding:8px 10px;font-size:12px;margin-bottom:10px;">
+      📷 <strong>A esta guía le faltan ${_fotosFaltantes(r)} foto(s).</strong> El técnico las tomó pero no quedaron vinculadas. Si se suben más tarde, se agregan solas; si no, revisa Storage o pide al técnico que abra la app con señal.</div>`;
+  }
   html+=`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;">
     <span class="pill pill-info">${r.tipo_visita||'—'}</span>
     <span class="pill pill-info">Técnico: ${r.tecnico||'—'}</span>
@@ -4234,6 +4239,23 @@ cargarScorecard();
 if(document.getElementById('firma-canvas'))setTimeout(initFirma,200);
 // Setear fecha de hoy por defecto
 var _fd=document.getElementById('visita-fecha');if(_fd)_fd.value=new Date().toISOString().split('T')[0];
+
+// ── Fotos faltantes (sesión 42) ──
+// Una guía tiene fotos faltantes si dice tener más fotos que URLs guardadas.
+function _fotosFaltantes(r){
+  try{
+    var n=0;
+    (r&&r.secciones||[]).forEach(function(s){
+      var u=Array.isArray(s.urlsFotosSeccion)?s.urlsFotosSeccion.length:0;
+      n+=Math.max(0,(s.fotos||0)-u);
+      (s.items||[]).forEach(function(i){
+        var ui=Array.isArray(i.urlsFotos)?i.urlsFotos.length:0;
+        n+=Math.max(0,(i.nFotosItem||0)-ui);
+      });
+    });
+    return n;
+  }catch(e){ return 0; }
+}
 </script>
 </body>
 </html>
