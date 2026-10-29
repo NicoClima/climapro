@@ -2350,64 +2350,108 @@ async function enviar(){
 }
 
 // ── Notificación al supervisor vía Google Apps Script ─────────
-// Aislada en try/catch y completamente async — nunca bloquea el wizard ni
-// el guardado de la guía, que en este punto ya ocurrió en Supabase.
-// El PDF se genera reusando _prepararPDFCompartir (html2canvas + jsPDF),
-// la misma función del botón "Compartir guía".
-// Si la generación del PDF falla, el correo se envía igual, sin adjunto.
-async function notificarSupervisor(reporte) {
-  if (!GAS_URL) return; // desactivado
-  try {
-    var secs = reporte.secciones || [];
-    var nAlertas = 0, nProblemas = 0;
-    secs.forEach(function(s) {
-      (s.items || []).forEach(function(it) {
-        // Normaliza estados cortos de reportes viejos ('al'/'pr')
-        if (it.estado === 'alerta'   || it.estado === 'al') nAlertas++;
-        if (it.estado === 'problema' || it.estado === 'pr') nProblemas++;
-      });
-    });
-    var partes = (reporte.fecha || '').split('-');
-    var fechaLegible = partes.length === 3 ? partes[2]+'/'+partes[1]+'/'+partes[0] : (reporte.fecha || '');
+// Sesión 43: en terreno (Android) el aviso nunca llegaba a Google — ningún
+// doPost en Ejecuciones. El envío dependía de que la app siguiera abierta
+// mientras se armaba el PDF, justo cuando se abría la pestaña de impresión y
+// el wizard quedaba congelado en segundo plano; y si fallaba, nadie se enteraba.
+// Ahora:
+//  1. La guía se anota en una cola local ANTES de empezar; solo sale de la cola
+//     cuando Google responde. Si la app se cierra, se reintenta al abrirla.
+//  2. El PDF tiene tope de tiempo: si no alcanza, el correo sale igual sin adjunto.
+//  3. El técnico ve el estado: enviando / enviado ✅ / pendiente ⚠️.
+//  4. La pestaña de impresión se abre DESPUÉS de enviar el correo (ver módulo
+//     CORREO AL SUPERVISOR al final), para no congelar el envío.
+// Nunca lanza: enviarPendientes() la espera dentro de un bucle.
+var CORREO_COLA_KEY        = 'climapro_correos_pendientes';
+var CORREO_PDF_TIMEOUT_MS  = 25000;
+var CORREO_POST_TIMEOUT_MS = 45000;
+window._correoEnCurso = window._correoEnCurso || {};
 
-    var payload = {
-      token:        GAS_TOKEN,
-      numero_guia:  reporte.numero_guia || '—',
-      cliente:      reporte.cliente     || '—',
-      tecnico:      reporte.tecnico     || '—',
-      fecha:        fechaLegible,
-      tipo_visita:  reporte.tipo_visita || '—',
-      n_equipos:    secs.length,
-      n_alertas:    nAlertas,
-      n_problemas:  nProblemas,
-      req_presup:   reporte.req_presup  || false,
-      presup_desc:  reporte.presup_desc || '',
-      obs_general:  reporte.obs_general || '',
-      trabajos:     reporte.trabajos || '',
-      estado_general: reporte.estado_general || '',
-    };
-
-    // PDF best-effort, en su propio try/catch
+function notificarSupervisor(reporte) {
+  if (!GAS_URL || !reporte) return Promise.resolve();
+  var clave = _correoClave(reporte);
+  if (window._correoEnCurso[clave]) return window._correoEnCurso[clave];
+  var p = (async function(){
     try {
-      var prep = await _prepararPDFCompartir(reporte);
-      var pdfBase64 = await new Promise(function(resolve, reject) {
-        var reader = new FileReader();
-        reader.onload  = function() { resolve(reader.result.split(',')[1]); };
-        reader.onerror = reject;
-        reader.readAsDataURL(prep.pdfBlob);
-      });
-      payload.pdf_base64 = pdfBase64;
-      payload.pdf_nombre = prep.nombreArchivo;
-    } catch(ePDF) {
-      console.warn('notificarSupervisor: PDF no generado, correo sin adjunto:', ePDF);
+      _correoEncolar(reporte);
+      _correoEstado('enviando', reporte);
+      var payload = _correoPayload(reporte);
+      var enCola = _correoCola().find(function(x){ return x.clave===clave; });
+      if(enCola && enCola.intentos>1){
+        payload.reenvio = 'Correo reintentado automáticamente (intento '+enCola.intentos+'); la guía se cerró el '+
+          new Date(enCola.creado).toLocaleString('es-CL');
+      }
+
+      // PDF best-effort, con tope de tiempo
+      try {
+        var prep = await _conTimeout(_prepararPDFCompartir(reporte), CORREO_PDF_TIMEOUT_MS, 'el PDF tardó demasiado');
+        var pdfBase64 = await new Promise(function(resolve, reject) {
+          var reader = new FileReader();
+          reader.onload  = function() { resolve(reader.result.split(',')[1]); };
+          reader.onerror = reject;
+          reader.readAsDataURL(prep.pdfBlob);
+        });
+        payload.pdf_base64 = pdfBase64;
+        payload.pdf_nombre = prep.nombreArchivo;
+      } catch(ePDF) {
+        console.warn('notificarSupervisor: correo sin adjunto:', ePDF && ePDF.message || ePDF);
+      }
+
+      // no-cors: la respuesta es opaca, pero que la promesa resuelva significa
+      // que el pedido llegó a Google y Google respondió.
+      await _conTimeout(fetch(GAS_URL, { method:'POST', mode:'no-cors', body:JSON.stringify(payload) }),
+                        CORREO_POST_TIMEOUT_MS, 'Google no respondió');
+      _correoQuitar(clave);
+      _correoEstado('enviado', reporte);
+    } catch(e) {
+      console.warn('notificarSupervisor: queda pendiente para reintentar:', e && e.message || e);
+      _correoEstado('pendiente', reporte);
+    } finally {
+      delete window._correoEnCurso[clave];
     }
+  })();
+  window._correoEnCurso[clave] = p;
+  return p;
+}
 
-    // POST fire-and-forget — no-cors, no se lee la respuesta
-    fetch(GAS_URL, { method:'POST', mode:'no-cors', body:JSON.stringify(payload) });
+function _correoClave(r){ return String((r && (r.id || r.numero_guia)) || ''); }
 
-  } catch(e) {
-    console.warn('notificarSupervisor:', e);
-  }
+function _correoPayload(reporte){
+  var secs = reporte.secciones || [];
+  var nAlertas = 0, nProblemas = 0;
+  secs.forEach(function(s) {
+    (s.items || []).forEach(function(it) {
+      // Normaliza estados cortos de reportes viejos ('al'/'pr')
+      if (it.estado === 'alerta'   || it.estado === 'al') nAlertas++;
+      if (it.estado === 'problema' || it.estado === 'pr') nProblemas++;
+    });
+  });
+  var partes = (reporte.fecha || '').split('-');
+  var fechaLegible = partes.length === 3 ? partes[2]+'/'+partes[1]+'/'+partes[0] : (reporte.fecha || '');
+  return {
+    token:        GAS_TOKEN,
+    numero_guia:  reporte.numero_guia || '—',
+    cliente:      reporte.cliente     || '—',
+    tecnico:      reporte.tecnico     || '—',
+    fecha:        fechaLegible,
+    tipo_visita:  reporte.tipo_visita || '—',
+    n_equipos:    secs.length,
+    n_alertas:    nAlertas,
+    n_problemas:  nProblemas,
+    req_presup:   reporte.req_presup  || false,
+    presup_desc:  reporte.presup_desc || '',
+    obs_general:  reporte.obs_general || '',
+    trabajos:     reporte.trabajos || '',
+    estado_general: reporte.estado_general || '',
+  };
+}
+
+function _conTimeout(promesa, ms, motivo){
+  return new Promise(function(resolve, reject){
+    var t = setTimeout(function(){ reject(new Error(motivo||'tiempo agotado')); }, ms);
+    Promise.resolve(promesa).then(function(v){ clearTimeout(t); resolve(v); },
+                                  function(e){ clearTimeout(t); reject(e); });
+  });
 }
 
 function reiniciar(){
@@ -4861,6 +4905,132 @@ setInterval(function(){ try{ _fotosReintentarVisita(); }catch(e){} }, 20000);
 setInterval(function(){ try{ _fotosActualizarIndicador(); }catch(e){} }, 3000);
 window.addEventListener('online', function(){ try{ _fotosReintentarVisita(); reintentarFotosPendientes(); }catch(e){} });
 setTimeout(function(){ fotosInitPendientes().catch(function(e){ console.warn('Fotos: inicio',e); }); }, 1500);
+
+// ══════════════════════════════════════════════════════════
+// CORREO AL SUPERVISOR — cola, reintentos y estado visible (sesión 43)
+// ══════════════════════════════════════════════════════════
+function _correoCola(){ try{ return JSON.parse(localStorage.getItem(CORREO_COLA_KEY)||'[]')||[]; }catch(e){ return []; } }
+function _correoGuardarCola(c){ try{ localStorage.setItem(CORREO_COLA_KEY, JSON.stringify(c.slice(-25))); }catch(e){ console.warn('Cola de correos: no se pudo guardar',e); } }
+function _correoEncolar(reporte){
+  var clave=_correoClave(reporte); if(!clave) return;
+  var cola=_correoCola();
+  var ex=cola.find(function(x){ return x.clave===clave; });
+  if(ex){ ex.intentos=(ex.intentos||0)+1; ex.ultimo=Date.now(); }
+  else {
+    // Se guarda el reporte sin las fotos embebidas (las URL bastan para reintentar)
+    cola.push({clave:clave, id:reporte.id||null, numero:reporte.numero_guia||null,
+               reporte:reporte, creado:Date.now(), ultimo:Date.now(), intentos:1});
+  }
+  _correoGuardarCola(cola);
+}
+function _correoQuitar(clave){ _correoGuardarCola(_correoCola().filter(function(x){ return x.clave!==clave; })); }
+
+// Reintento: al abrir la app, al volver a primer plano y al recuperar señal.
+async function _correoReintentar(){
+  if(!GAS_URL || !navigator.onLine) return;
+  var cola=_correoCola();
+  for(var i=0;i<cola.length;i++){
+    var x=cola[i];
+    if(window._correoEnCurso[x.clave]) continue;
+    if(Date.now()-(x.creado||0) > 14*86400000){ _correoQuitar(x.clave); continue; }
+    var r=x.reporte;
+    // Si la guía ya está en Supabase, se usa la versión guardada (trae las fotos que llegaron después)
+    if(x.id){
+      try{
+        var filas=await sbGet('reportes','or=(id.eq.'+x.id+',reporte_original_id.eq.'+x.id+')&order=version.desc&limit=1');
+        if(filas && filas[0] && filas[0].correo_enviado_at){
+          // El respaldo automático del servidor ya envió el correo de esta guía
+          _correoQuitar(x.clave); continue;
+        }
+        if(filas && filas[0]) r=Object.assign({}, filas[0], {id:x.id});
+      }catch(e){}
+    }
+    await notificarSupervisor(r);
+  }
+  _correoEstado(null);
+}
+
+// Estado visible: en la pantalla de enviado (guía actual) y en el inicio (pendientes).
+function _correoEstado(estado, reporte){
+  try{
+    if(estado && reporte && reporte===window._ultimoReporteEnviado){
+      var el=document.getElementById('correo-estado');
+      if(!el){
+        var ancla=document.getElementById('enviado-id');
+        if(ancla && ancla.parentNode){
+          el=document.createElement('div'); el.id='correo-estado';
+          el.style.cssText='font-size:12px;margin:8px 0;padding:8px 10px;border-radius:8px;';
+          ancla.parentNode.insertBefore(el, ancla.nextSibling);
+        }
+      }
+      if(el){
+        var t={enviando:['📧 Enviando la guía al supervisor… No cierres la app hasta ver ✅.','var(--amber-light)','var(--amber-dark)'],
+               enviado:['✅ Guía enviada por correo al supervisor.','var(--green-light)','var(--green-dark)'],
+               pendiente:['⚠️ El correo al supervisor todavía no salió. Se reintentará solo al abrir la app con señal.','var(--red-light)','var(--red-dark)']}[estado];
+        if(t){ el.textContent=t[0]; el.style.background=t[1]; el.style.color=t[2]; el.style.display='block'; }
+      }
+    }
+    var n=_correoCola().filter(function(x){ return !window._correoEnCurso[x.clave]; }).length;
+    var ei=document.getElementById('correo-estado-inicio');
+    if(!ei){
+      var a2=document.getElementById('pending-badge');
+      if(a2 && a2.parentNode){
+        ei=document.createElement('div'); ei.id='correo-estado-inicio';
+        ei.style.cssText='font-size:12px;margin:8px 0;padding:8px 10px;border-radius:8px;background:var(--red-light);color:var(--red-dark);display:none;';
+        a2.parentNode.insertBefore(ei, a2.nextSibling);
+      }
+    }
+    if(ei){
+      ei.textContent='📧 '+n+' correo'+(n!==1?'s':'')+' de guías al supervisor pendiente'+(n!==1?'s':'')+'. Se reintentan solos con señal.';
+      ei.style.display=n?'block':'none';
+    }
+  }catch(e){}
+}
+
+// ── La pestaña de impresión se abre DESPUÉS de enviar el correo ──
+// Antes se abría a los 0,8 s: el wizard quedaba en segundo plano y Android lo
+// congelaba justo mientras armaba el PDF del correo. Ahora espera al correo
+// (máx. 30 s). Si el navegador bloquea la ventana, se ofrece un botón en vez
+// de un alert.
+function _abrirGuiaImprimir(r){
+  var abrir=function(r2){
+    var html=construirHTMLGuia(r2);
+    var url=URL.createObjectURL(new Blob([html],{type:'text/html'}));
+    var win=window.open(url,'_blank');
+    if(!win){ URL.revokeObjectURL(url); return false; }
+    win.addEventListener('load',function(){ setTimeout(function(){ win.print(); URL.revokeObjectURL(url); },500); });
+    return true;
+  };
+  var conFotos=(typeof _conFotosLocales==='function') ? _conFotosLocales(r) : Promise.resolve(r);
+  return Promise.resolve(conFotos).then(function(r2){ return r2||r; }, function(){ return r; }).then(function(r2){
+    if(abrir(r2)) return;
+    try{
+      var ancla=document.getElementById('correo-estado')||document.getElementById('enviado-id');
+      if(!ancla || document.getElementById('btn-imprimir-guia')) return;
+      var b=document.createElement('button');
+      b.id='btn-imprimir-guia'; b.type='button'; b.className='btn-next';
+      b.style.cssText='margin-top:8px;width:100%;background:var(--gray3);';
+      b.textContent='🖨️ Ver / imprimir guía';
+      b.onclick=function(){ if(!abrir(r2)) alert('Activa las ventanas emergentes en tu navegador para ver la guía de servicio'); };
+      ancla.parentNode.insertBefore(b, ancla.nextSibling);
+    }catch(e){}
+  });
+}
+generarPDFGuia = function(r){
+  var p=(window._correoEnCurso||{})[_correoClave(r||{})] || Promise.resolve();
+  _conTimeout(p, 30000).catch(function(){}).then(function(){ _abrirGuiaImprimir(r); });
+};
+// "Nueva visita" quita el botón de imprimir de la visita anterior
+var _reiniciarBaseCorreo = reiniciar;
+reiniciar = function(){
+  try{ ['btn-imprimir-guia','correo-estado'].forEach(function(id){ var e=document.getElementById(id); if(e) e.remove(); }); }catch(e){}
+  return _reiniciarBaseCorreo.apply(this, arguments);
+};
+
+setTimeout(function(){ try{ _correoEstado(null); _correoReintentar(); }catch(e){} }, 4000);
+window.addEventListener('online', function(){ try{ _correoReintentar(); }catch(e){} });
+document.addEventListener('visibilitychange', function(){ if(!document.hidden){ try{ _correoReintentar(); }catch(e){} } });
+setInterval(function(){ try{ _correoReintentar(); }catch(e){} }, 60000);
 </script>
 </body>
 </html>
