@@ -1232,6 +1232,7 @@ async function cargarHistorial(){
           ${al>0?`<span class="pill pill-al">⚠️ ${al} alertas</span>`:''}
           ${pr===0&&al===0?`<span class="pill pill-ok">✅ Sin incidencias</span>`:''}
           ${r.req_presup?`<span class="pill pill-presup">💰 Presup.</span>`:''}
+          ${(typeof _correoSinConfirmar==='function'&&_correoSinConfirmar(r))?`<span class="pill pill-pr">📧 Sin correo</span>`:''}
           ${(typeof _fotosFaltantes==='function'&&_fotosFaltantes(r)>0)?`<span class="pill pill-pr">📷 Faltan ${_fotosFaltantes(r)} foto(s)</span>`:''}
           ${r.req_presup&&r.presup_enviado?`<span class="pill pill-ok">✅ Enviado</span>`:''}
           ${r.req_presup&&!r.presup_enviado?`<span class="pill" style="background:var(--gray);color:var(--text3);border:0.5px solid var(--gray3);">⏳ Pendiente</span>`:''}
@@ -1408,6 +1409,7 @@ function verDetalleVisita(r){
     html+=`<div style="background:var(--red-light);color:var(--red-dark);border:0.5px solid var(--red-dark);border-radius:8px;padding:8px 10px;font-size:12px;margin-bottom:10px;">
       📷 <strong>A esta guía le faltan ${_fotosFaltantes(r)} foto(s).</strong> El técnico las tomó pero no quedaron vinculadas. Si se suben más tarde, se agregan solas; si no, revisa Storage o pide al técnico que abra la app con señal.</div>`;
   }
+  if(typeof _correoDetalleHTML==='function') html+=_correoDetalleHTML(r);
   html+=`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;">
     <span class="pill pill-info">${r.tipo_visita||'—'}</span>
     <span class="pill pill-info">Técnico: ${r.tecnico||'—'}</span>
@@ -1662,6 +1664,7 @@ async function guardarEdicionGuia(){
       nguia:r.nguia,
       presup_enviado:r.presup_enviado,
       presup_fecha_envio:r.presup_fecha_envio,
+      ...(r.correo_enviado_at!==undefined?{correo_enviado_at:r.correo_enviado_at,correo_via:r.correo_via||null}:{}),
       ...nuevo,
       version:nuevaVersion,
       reporte_original_id:rootId,
@@ -4255,6 +4258,32 @@ function _fotosFaltantes(r){
     });
     return n;
   }catch(e){ return 0; }
+}
+
+// ── Estado del correo al supervisor (sesión 43) ──
+// reportes.correo_enviado_at lo escribe el Apps Script (v1.2) al enviar el
+// correo, desde el teléfono ("app") o desde el respaldo automático ("respaldo").
+var CORREO_CONFIRMACION_DESDE = '2026-10-29';
+function _correoSinConfirmar(r){
+  try{
+    if(!r || !('correo_enviado_at' in r) || r.correo_enviado_at) return false;
+    var c=r.created_at?new Date(r.created_at):null;
+    if(!c || c < new Date(CORREO_CONFIRMACION_DESDE)) return false;
+    return (Date.now()-c.getTime()) > 30*60000;
+  }catch(e){ return false; }
+}
+function _correoDetalleHTML(r){
+  try{
+    if(!r || !('correo_enviado_at' in r)) return '';
+    if(r.correo_enviado_at){
+      var via=r.correo_via==='respaldo'?' (respaldo automático, sin PDF adjunto)':'';
+      return `<div style="font-size:11px;color:var(--green-dark);margin-bottom:8px;">📧 Correo al supervisor enviado el ${new Date(r.correo_enviado_at).toLocaleString('es-CL')}${via}</div>`;
+    }
+    if(_correoSinConfirmar(r)){
+      return `<div style="background:var(--red-light);color:var(--red-dark);border:0.5px solid var(--red-dark);border-radius:8px;padding:8px 10px;font-size:12px;margin-bottom:10px;">📧 <strong>El correo de esta guía al supervisor no está confirmado.</strong> Usa 💾 Guardar PDF y reenvíalo.</div>`;
+    }
+    return '';
+  }catch(e){ return ''; }
 }
 </script>
 </body>
